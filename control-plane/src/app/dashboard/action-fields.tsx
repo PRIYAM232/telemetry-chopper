@@ -7,7 +7,7 @@
 // validation can be honest: when the field is visible, it is mandatory.
 //
 // Everything stays an uncontrolled <form> feeding the createRule Server
-// Action; the only client state is which action is selected.
+// Action; the only client state is which action and signal are selected.
 
 import { useState } from "react";
 import { PolicyAction, TargetSignal } from "@/generated/prisma/enums";
@@ -21,6 +21,7 @@ const KNOWN_DESTINATIONS = ["cold-storage", "premium-analytics"];
 
 export function ActionFields() {
   const [action, setAction] = useState<string>(PolicyAction.DROP);
+  const [signal, setSignal] = useState<string>(TargetSignal.TRACES);
 
   return (
     <>
@@ -38,7 +39,12 @@ export function ActionFields() {
           </select>
         </Field>
         <Field label="Signal">
-          <select name="targetSignal" defaultValue={TargetSignal.TRACES} className={inputClass}>
+          <select
+            name="targetSignal"
+            value={signal}
+            onChange={(e) => setSignal(e.target.value)}
+            className={inputClass}
+          >
             {Object.values(TargetSignal).map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
