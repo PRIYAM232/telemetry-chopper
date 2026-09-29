@@ -1,7 +1,7 @@
 # The sandbox's stand-in log vendor (otelcol-contrib). It sits AFTER the
-# Pulse proxy, so everything here is what a real backend would have ingested:
+# Telemetry Chopper proxy, so everything here is what a real backend would have ingested:
 #
-#   - stdout: every record, detailed — `docker logs -f pulse-sbx-log-backend`.
+#   - stdout: every record, detailed — `docker logs -f chopper-sbx-log-backend`.
 #   - :8889: two counters for Prometheus, computed by the count connector:
 #       sandbox_backend_logs_total{tenant_id}      — per-tenant volume (THROTTLE)
 #       sandbox_backend_pii_leaks_total{tenant_id} — records still carrying

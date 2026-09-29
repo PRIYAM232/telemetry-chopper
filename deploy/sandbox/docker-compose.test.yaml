@@ -1,10 +1,10 @@
-# Pulse sandbox — a production-like local rig for exercising REDACT and
+# Telemetry Chopper sandbox — a production-like local rig for exercising REDACT and
 # THROTTLE rules live, with real backends on the far side of the proxy.
 # Runbook: deploy/sandbox/README.md. From the repo root:
 #
 #   docker compose -f deploy/sandbox/docker-compose.test.yaml up -d --build
 #
-#   loadgen ──OTLP──► otelcol-pulse ──► jaeger             (traces)
+#   loadgen ──OTLP──► otelcol-chopper ──► jaeger             (traces)
 #                        │  ▲        ├─► prometheus         (metrics, via OTLP)
 #                        │  │        └─► mock-log-backend   (logs → stdout)
 #          rules (poll)  ▼  │ stats
@@ -14,26 +14,26 @@
 # backend's per-tenant / PII-leak counters, so volume and leaks are graphable.
 #
 # Host ports bind 127.0.0.1 only — the control plane has no operator auth —
-# and every one is overridable, e.g. PULSE_UI_PORT=3100 when a dev server
+# and every one is overridable, e.g. CHOPPER_UI_PORT=3100 when a dev server
 # already owns :3000.
 
-name: pulse-sandbox
+name: chopper-sandbox
 
 services:
   # --- Control plane -----------------------------------------------------------
 
   postgres:
     image: postgres:16-alpine
-    container_name: pulse-sbx-postgres
+    container_name: chopper-sbx-postgres
     environment:
-      POSTGRES_USER: pulse
-      POSTGRES_PASSWORD: pulse
-      POSTGRES_DB: pulse_control
+      POSTGRES_USER: chopper
+      POSTGRES_PASSWORD: chopper
+      POSTGRES_DB: chopper_control
     # No host port: only the control plane talks to it.
     volumes:
-      - pulse-sbx-pgdata:/var/lib/postgresql/data
+      - chopper-sbx-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pulse -d pulse_control"]
+      test: ["CMD-SHELL", "pg_isready -U chopper -d chopper_control"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -44,9 +44,9 @@ services:
     build:
       context: ../../control-plane
       target: builder
-    container_name: pulse-sbx-control-plane-migrate
+    container_name: chopper-sbx-control-plane-migrate
     environment:
-      DATABASE_URL: postgresql://pulse:pulse@postgres:5432/pulse_control?schema=public
+      DATABASE_URL: postgresql://chopper:chopper@postgres:5432/chopper_control?schema=public
     command: sh -c "npx prisma migrate deploy && npx prisma db seed"
     restart: "no"
     depends_on:
@@ -57,11 +57,11 @@ services:
     build:
       context: ../../control-plane
       target: runner
-    container_name: pulse-sbx-control-plane
+    container_name: chopper-sbx-control-plane
     environment:
-      DATABASE_URL: postgresql://pulse:pulse@postgres:5432/pulse_control?schema=public
+      DATABASE_URL: postgresql://chopper:chopper@postgres:5432/chopper_control?schema=public
     ports:
-      - "127.0.0.1:${PULSE_UI_PORT:-3000}:3000" # dashboard + policy/stats APIs
+      - "127.0.0.1:${CHOPPER_UI_PORT:-3000}:3000" # dashboard + policy/stats APIs
     depends_on:
       control-plane-migrate:
         condition: service_completed_successfully
@@ -83,11 +83,11 @@ services:
   # The same image the packaged stack ships; only the config differs. No
   # restart policy on purpose: RestartCount/StartedAt are how the runbook
   # proves rule changes land without a restart.
-  otelcol-pulse:
+  otelcol-chopper:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.collector
-    container_name: pulse-sbx-otelcol
+    container_name: chopper-sbx-otelcol
     ports:
       - "127.0.0.1:${OTLP_GRPC_PORT:-4317}:4317" # OTLP gRPC ingest
       - "127.0.0.1:${OTLP_HTTP_PORT:-4318}:4318" # OTLP HTTP ingest
@@ -111,13 +111,13 @@ services:
   # storage, OTLP on 4317/4318, UI on 16686.
   jaeger:
     image: jaegertracing/jaeger:2.20.0
-    container_name: pulse-sbx-jaeger
+    container_name: chopper-sbx-jaeger
     ports:
       - "127.0.0.1:${JAEGER_UI_PORT:-16686}:16686"
 
   prometheus:
     image: prom/prometheus:v3.13.3
-    container_name: pulse-sbx-prometheus
+    container_name: chopper-sbx-prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
@@ -134,7 +134,7 @@ services:
   # counts records per tenant and records still carrying PII.
   mock-log-backend:
     image: otel/opentelemetry-collector-contrib:0.156.0
-    container_name: pulse-sbx-log-backend
+    container_name: chopper-sbx-log-backend
     volumes:
       - ./mock-log-backend.yaml:/etc/otelcol-contrib/config.yaml:ro
     # Detailed output at the default noisy rate is ~1 MB/s of container logs.
@@ -149,16 +149,16 @@ services:
   loadgen:
     build:
       context: ./loadgen
-    container_name: pulse-sbx-loadgen
+    container_name: chopper-sbx-loadgen
     environment:
-      OTLP_ENDPOINT: otelcol-pulse:4317
+      OTLP_ENDPOINT: otelcol-chopper:4317
       NOISY_RATE: ${NOISY_RATE:-500}
       TENANT_RATE: ${TENANT_RATE:-5}
       TRACE_RATE: ${TRACE_RATE:-1}
     depends_on:
-      otelcol-pulse:
+      otelcol-chopper:
         condition: service_started
     restart: unless-stopped
 
 volumes:
-  pulse-sbx-pgdata:
+  chopper-sbx-pgdata:

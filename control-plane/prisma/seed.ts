@@ -13,7 +13,7 @@ import { PrismaClient } from "../src/generated/prisma/client";
 
 export const DEV_FLEET_ID = "f1ee7000-0000-4000-8000-000000000001";
 export const DEV_FLEET_API_KEY =
-  "pulse_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712";
+  "chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712";
 
 const RULE_DROP_404 = "0a000000-0000-4000-8000-000000000001";
 const RULE_DROP_HEALTHZ = "0a000000-0000-4000-8000-000000000002";
@@ -31,7 +31,7 @@ async function main() {
       id: DEV_FLEET_ID,
       name: "local-dev-fleet",
       description:
-        "Deterministic development fleet for local end-to-end testing of the pulse_filter sync loop.",
+        "Deterministic development fleet for local end-to-end testing of the chopper_filter sync loop.",
       apiKey: DEV_FLEET_API_KEY,
     },
   });

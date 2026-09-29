@@ -1,5 +1,5 @@
-// Command loadgen is the Pulse sandbox's synthetic workload. It speaks raw
-// OTLP/gRPC to the proxy and emits streams built to exercise one pulse_filter
+// Command loadgen is the Telemetry Chopper sandbox's synthetic workload. It speaks raw
+// OTLP/gRPC to the proxy and emits streams built to exercise one chopper_filter
 // path each:
 //
 //   - Noisy neighbor: tenant "globex" has a runaway reindex job spamming DEBUG
@@ -45,7 +45,7 @@ import (
 )
 
 const (
-	scopeName     = "pulse-sandbox/loadgen"
+	scopeName     = "chopper-sandbox/loadgen"
 	noisyTenant   = "globex"
 	tickInterval  = 100 * time.Millisecond
 	metricsEvery  = 5 * time.Second

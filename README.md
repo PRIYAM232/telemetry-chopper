@@ -1,4 +1,4 @@
-# Pulse
+# Telemetry Chopper
 
 **The open-source observability control plane. Shape, route, and redact telemetry data at the edge — before it hits your backend.**
 
@@ -9,7 +9,7 @@
 
 Modern observability has a cost problem. Teams ship every log line, span, and metric to their vendor, then pay per-GB to store data that is 90% noise — health checks, debug chatter, duplicate stack traces — while PII quietly leaks into third-party backends. Tuning any of it means editing collector YAML and rolling restarts across the fleet.
 
-Pulse fixes this at the edge. It's a smart OpenTelemetry firewall that sits between your applications and your observability backend: define policies in a web UI, and every collector in your fleet picks them up **within seconds, with zero restarts and zero code changes**. **DROP** the noise, **SAMPLE** the bulk, **REDACT** the PII, **ROUTE** low-value data to cheap storage, and **THROTTLE** noisy tenants before they take down your pipeline.
+Telemetry Chopper fixes this at the edge. It's a smart OpenTelemetry firewall that sits between your applications and your observability backend: define policies in a web UI, and every collector in your fleet picks them up **within seconds, with zero restarts and zero code changes**. **DROP** the noise, **SAMPLE** the bulk, **REDACT** the PII, **ROUTE** low-value data to cheap storage, and **THROTTLE** noisy tenants before they take down your pipeline.
 
 - 💸 **Cut observability spend** — filter and sample at the source, not the invoice.
 - 🔒 **Enforce compliance** — mask SSNs, credit cards, and tokens before they leave your network.
@@ -20,21 +20,21 @@ Pulse fixes this at the edge. It's a smart OpenTelemetry firewall that sits betw
 
 ## Architecture
 
-Pulse uses a deliberately decoupled, split-brain design: a compiled, low-latency **Data Plane** that touches your telemetry, and a web-based **Control Plane** that never does.
+Telemetry Chopper uses a deliberately decoupled, split-brain design: a compiled, low-latency **Data Plane** that touches your telemetry, and a web-based **Control Plane** that never does.
 
 - **Control Plane** ([`control-plane/`](control-plane/)) — a Next.js application backed by PostgreSQL (Prisma). This is where you manage collector fleets, author policy rules, and watch live match/drop statistics. It serves versioned rulesets over a poll-and-sync API to any number of collectors.
 
-- **Data Plane** ([`data-plane/`](data-plane/)) — `otelcol-pulse`, a custom OpenTelemetry Collector distribution built with the official OCB toolchain. Its core is the purpose-built `pulse_filter` processor: it polls the Control Plane for rule updates, applies them across traces, logs, and metrics with zero-allocation regex matching and lock-free hot-path counters, and atomically swaps rulesets in memory. If the Control Plane is unreachable, the collector **fails open** on its last-known ruleset — your telemetry keeps flowing.
+- **Data Plane** ([`data-plane/`](data-plane/)) — `otelcol-chopper`, a custom OpenTelemetry Collector distribution built with the official OCB toolchain. Its core is the purpose-built `chopper_filter` processor: it polls the Control Plane for rule updates, applies them across traces, logs, and metrics with zero-allocation regex matching and lock-free hot-path counters, and atomically swaps rulesets in memory. If the Control Plane is unreachable, the collector **fails open** on its last-known ruleset — your telemetry keeps flowing.
 
 ```mermaid
 flowchart LR
     apps["📦 Your services<br/>(OTLP SDKs, agents)"]
 
-    subgraph dp ["Pulse Data Plane"]
-        collector["otelcol-pulse<br/>pulse_filter processor<br/>+ routing connectors"]
+    subgraph dp ["Telemetry Chopper Data Plane"]
+        collector["otelcol-chopper<br/>chopper_filter processor<br/>+ routing connectors"]
     end
 
-    subgraph cp ["Pulse Control Plane"]
+    subgraph cp ["Telemetry Chopper Control Plane"]
         ui["Next.js UI + API<br/>:3000"]
         db[("PostgreSQL")]
         ui --- db
@@ -77,12 +77,12 @@ Malformed rules (e.g. a SAMPLE without a rate) are skipped, not fatal — the da
 ### 1. Clone and run the stack
 
 ```bash
-git clone https://github.com/PRIYAM232/pulse-telemetry.git
-cd pulse-telemetry
+git clone https://github.com/PRIYAM232/telemetry-chopper.git
+cd telemetry-chopper
 docker compose -f deploy/docker/docker-compose.yaml up -d --build
 ```
 
-This brings up the full stack in dependency order: PostgreSQL → a one-shot migrate + seed job → the Control Plane → the `otelcol-pulse` collector. The seed provisions a deterministic **local dev fleet** whose credentials are pre-wired into the collector config (rotate these for any real deployment).
+This brings up the full stack in dependency order: PostgreSQL → a one-shot migrate + seed job → the Control Plane → the `otelcol-chopper` collector. The seed provisions a deterministic **local dev fleet** whose credentials are pre-wired into the collector config (rotate these for any real deployment).
 
 | Service | Port | Purpose |
 |---|---|---|
@@ -97,7 +97,7 @@ Head to **[http://localhost:3000](http://localhost:3000)** — you'll see the se
 
 ### 3. Send some telemetry
 
-Use `telemetrygen` (the OTel Collector's load generator) to fire traces at Pulse:
+Use `telemetrygen` (the OTel Collector's load generator) to fire traces at Telemetry Chopper:
 
 ```bash
 docker run --rm --add-host=host.docker.internal:host-gateway \
@@ -110,7 +110,7 @@ docker run --rm --add-host=host.docker.internal:host-gateway \
 Watch the spans flow through the collector:
 
 ```bash
-docker logs -f otelcol-pulse
+docker logs -f otelcol-chopper
 ```
 
 ### 4. Create a rule — no restart required
@@ -129,14 +129,14 @@ The collector reports match/drop statistics back to the Control Plane every 10 s
 
 ## Deploying to Kubernetes
 
-The [`pulse-telemetry` Helm chart](deploy/helm/README.md) packages the same stack for Kubernetes — StatefulSet PostgreSQL, migration Job as a Helm hook, Control Plane and collector Deployments, plus optional self-monitoring:
+The [`telemetry-chopper` Helm chart](deploy/helm/README.md) packages the same stack for Kubernetes — StatefulSet PostgreSQL, migration Job as a Helm hook, Control Plane and collector Deployments, plus optional self-monitoring:
 
 - Collector self-metrics exposed on `:8888` (`otelcol_*` process and pipeline metrics).
 - A gated **ServiceMonitor** for Prometheus Operator scraping.
 - A pre-built **Grafana dashboard** for collector health, shipped as a sidecar ConfigMap.
 
 ```bash
-helm install pulse deploy/helm/pulse-telemetry
+helm install chopper deploy/helm/telemetry-chopper
 ```
 
 See the [Helm README](deploy/helm/README.md) for image builds, values, and the self-monitoring gates.
@@ -146,15 +146,15 @@ See the [Helm README](deploy/helm/README.md) for image builds, values, and the s
 ## Repository layout
 
 ```
-pulse-telemetry/
+telemetry-chopper/
 ├── data-plane/                       # Go — custom OTel Collector distribution
-│   ├── builder-config.yaml           # OCB manifest → compiles otelcol-pulse
-│   ├── config/otelcol-dev.yaml       # local dev pipeline (otlp → pulse_filter → routing → debug)
-│   └── processors/filterprocessor/   # the pulse_filter processor (standalone Go module)
+│   ├── builder-config.yaml           # OCB manifest → compiles otelcol-chopper
+│   ├── config/otelcol-dev.yaml       # local dev pipeline (otlp → chopper_filter → routing → debug)
+│   └── processors/filterprocessor/   # the chopper_filter processor (standalone Go module)
 ├── control-plane/                    # Next.js + Prisma + PostgreSQL control plane
 ├── deploy/
 │   ├── docker/                       # docker-compose stack + collector image
-│   └── helm/pulse-telemetry/         # Kubernetes Helm chart
+│   └── helm/telemetry-chopper/         # Kubernetes Helm chart
 ├── Makefile                          # ocb / tidy / build / run / clean
 └── Architecture.md                   # full split-brain design doc
 ```
@@ -168,7 +168,7 @@ pulse-telemetry/
 ```bash
 make ocb     # install the OpenTelemetry Collector Builder (pinned v0.156.0)
 make tidy    # resolve the processor module's dependencies
-make build   # ocb generates + compiles data-plane/dist/otelcol-pulse
+make build   # ocb generates + compiles data-plane/dist/otelcol-chopper
 make run     # start the collector on :4317 (gRPC) / :4318 (HTTP)
 ```
 
@@ -183,11 +183,11 @@ npm run dev    # http://localhost:3000
 
 **Version rule:** the `ocb` binary and every collector `gomod` entry in [`builder-config.yaml`](data-plane/builder-config.yaml) must come from the same collector release line (currently **v0.156.0** / API modules v1.62.0).
 
-### `pulse_filter` configuration
+### `chopper_filter` configuration
 
 ```yaml
 processors:
-  pulse_filter:
+  chopper_filter:
     sync_endpoint: http://control-plane:3000/api/v1/policies/<fleet-id>
     sync_interval: 10s          # how often to poll for rule changes
     stats_endpoint: http://control-plane:3000/api/v1/telemetry/<fleet-id>/stats
@@ -200,18 +200,18 @@ processors:
 
 ## Security Posture & Roadmap
 
-We're open-sourcing Pulse with a deliberately honest security story: what V1 assumes, how to run it safely today with infrastructure you already have, and what ships next.
+We're open-sourcing Telemetry Chopper with a deliberately honest security story: what V1 assumes, how to run it safely today with infrastructure you already have, and what ships next.
 
 ### Designed for trusted environments (the reality)
 
-Pulse V1 assumes deployment inside a **trusted network perimeter** — your private VPC, internal network, or Kubernetes cluster. The Control Plane does not yet ship built-in user authentication, and collector-to-control-plane traffic is authenticated with per-fleet API keys over plain HTTP. Neither component should be exposed directly to the public internet as-is. The docker-compose and Helm quick starts seed **deterministic dev fleet credentials** for a friction-free first run — rotate them for anything beyond local evaluation.
+Telemetry Chopper V1 assumes deployment inside a **trusted network perimeter** — your private VPC, internal network, or Kubernetes cluster. The Control Plane does not yet ship built-in user authentication, and collector-to-control-plane traffic is authenticated with per-fleet API keys over plain HTTP. Neither component should be exposed directly to the public internet as-is. The docker-compose and Helm quick starts seed **deterministic dev fleet credentials** for a friction-free first run — rotate them for anything beyond local evaluation.
 
 ### Production deployment recommendations
 
 V1 is designed to slot behind the perimeter controls your platform team already operates:
 
 - **Control Plane access** — front the Next.js UI and policy API with an Identity-Aware Proxy such as [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/) or [Tailscale](https://tailscale.com/), or restrict it to your internal VPN. Every rule mutation then carries your organization's existing identity and access policy.
-- **Network encryption** — enforce mTLS between `otelcol-pulse` and the Control Plane with a Kubernetes service mesh ([Istio](https://istio.io/), [Linkerd](https://linkerd.io/)) or a TLS-terminating ingress controller. The sync and stats endpoints are plain HTTP calls, so mesh sidecars wrap them transparently — no Pulse configuration changes required.
+- **Network encryption** — enforce mTLS between `otelcol-chopper` and the Control Plane with a Kubernetes service mesh ([Istio](https://istio.io/), [Linkerd](https://linkerd.io/)) or a TLS-terminating ingress controller. The sync and stats endpoints are plain HTTP calls, so mesh sidecars wrap them transparently — no Telemetry Chopper configuration changes required.
 
 ### Inherent security benefits
 
@@ -222,7 +222,7 @@ V1 is designed to slot behind the perimeter controls your platform team already 
 
 ### The enterprise roadmap
 
-Slated for upcoming V1.x releases to make Pulse fully compliant out of the box:
+Slated for upcoming V1.x releases to make Telemetry Chopper fully compliant out of the box:
 
 - **RBAC & SSO** — Role-Based Access Control and OIDC/SAML Single Sign-On for the Control Plane.
 - **Native mTLS** — cryptographic mutual TLS enforcement between the data plane and control plane, without requiring a mesh.

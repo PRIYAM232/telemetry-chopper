@@ -1,5 +1,5 @@
-# otelcol-pulse config for the sandbox — the production pipeline shape from
-# deploy/docker/otelcol-docker.yaml (otlp → pulse_filter → routing → hot/cold)
+# otelcol-chopper config for the sandbox — the production pipeline shape from
+# deploy/docker/otelcol-docker.yaml (otlp → chopper_filter → routing → hot/cold)
 # with the hot pipelines terminating in real backends instead of `debug`:
 #
 #   traces/hot  → Jaeger             (otlp_grpc)
@@ -19,7 +19,7 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
-  pulse_filter:
+  chopper_filter:
     log_span_details: false
     sync_endpoint: http://control-plane:3000/api/v1/policies/f1ee7000-0000-4000-8000-000000000001
     # Tighter than the 10s dev default so a rule saved in the dashboard is
@@ -27,26 +27,26 @@ processors:
     sync_interval: 5s
     stats_endpoint: http://control-plane:3000/api/v1/telemetry/f1ee7000-0000-4000-8000-000000000001/stats
     stats_interval: 10s
-    fleet_key: pulse_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
+    fleet_key: chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
 
 connectors:
   routing/traces:
     default_pipelines: [traces/hot]
     table:
       - context: resource
-        condition: attributes["pulse.routing.destination"] == "cold-storage"
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
         pipelines: [traces/cold]
   routing/logs:
     default_pipelines: [logs/hot]
     table:
       - context: resource
-        condition: attributes["pulse.routing.destination"] == "cold-storage"
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
         pipelines: [logs/cold]
   routing/metrics:
     default_pipelines: [metrics/hot]
     table:
       - context: resource
-        condition: attributes["pulse.routing.destination"] == "cold-storage"
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
         pipelines: [metrics/cold]
 
 exporters:
@@ -66,14 +66,14 @@ exporters:
 service:
   telemetry:
     logs:
-      # info, not debug: pulse_filter logs every batch at debug, which at the
+      # info, not debug: chopper_filter logs every batch at debug, which at the
       # sandbox's noisy rate would bury the "ruleset updated" lines the
       # runbook greps for.
       level: info
     metrics:
       # Scraped by the sandbox Prometheus. 0.0.0.0 so it is reachable over
       # the compose network; the without_* flags keep the classic metric
-      # names (otelcol_pulse_filter_logs_dropped, no _total suffix).
+      # names (otelcol_chopper_filter_logs_dropped, no _total suffix).
       level: normal
       readers:
         - pull:
@@ -87,15 +87,15 @@ service:
   pipelines:
     traces/in:
       receivers: [otlp]
-      processors: [pulse_filter]
+      processors: [chopper_filter]
       exporters: [routing/traces]
     logs/in:
       receivers: [otlp]
-      processors: [pulse_filter]
+      processors: [chopper_filter]
       exporters: [routing/logs]
     metrics/in:
       receivers: [otlp]
-      processors: [pulse_filter]
+      processors: [chopper_filter]
       exporters: [routing/metrics]
 
     traces/hot:

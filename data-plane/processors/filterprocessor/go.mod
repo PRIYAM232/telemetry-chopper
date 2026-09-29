@@ -1,4 +1,4 @@
-module github.com/PRIYAM232/pulse-telemetry/data-plane/processors/filterprocessor
+module github.com/PRIYAM232/telemetry-chopper/data-plane/processors/filterprocessor
 
 go 1.25.0
 

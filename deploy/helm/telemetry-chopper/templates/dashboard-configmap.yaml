@@ -4,7 +4,7 @@
 # it by default): the sidecar watches for the grafana_dashboard: "1" label
 # and imports the JSON automatically — no manual Grafana provisioning.
 #
-# The JSON lives in files/pulse-collector-dashboard.json and is inlined via
+# The JSON lives in files/chopper-collector-dashboard.json and is inlined via
 # .Files.Get, NOT authored in this template — Grafana's own {{"{{"}}pod{{"}}"}} legend
 # templating would otherwise fight Helm's delimiters. Its queries assume the
 # metric names produced by this chart's collector telemetry reader config
@@ -20,10 +20,10 @@ metadata:
   {{- end }}
   labels:
     grafana_dashboard: "1"
-    app.kubernetes.io/name: pulse-collector
+    app.kubernetes.io/name: chopper-collector
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: collector
-    {{- include "pulse-telemetry.labels" . | nindent 4 }}
+    {{- include "telemetry-chopper.labels" . | nindent 4 }}
     {{- with .Values.metrics.dashboard.additionalLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -32,6 +32,6 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 data:
-  pulse-collector.json: |-
-{{ .Files.Get "files/pulse-collector-dashboard.json" | indent 4 }}
+  chopper-collector.json: |-
+{{ .Files.Get "files/chopper-collector-dashboard.json" | indent 4 }}
 {{- end }}

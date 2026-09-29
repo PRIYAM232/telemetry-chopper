@@ -1,4 +1,4 @@
-Pulse telemetry stack installed as release "{{ .Release.Name }}".
+Telemetry Chopper stack installed as release "{{ .Release.Name }}".
 
 Startup order (mirrors the compose stack): postgres → migrate+seed (hook
 Job, first install runs it post-install) → control plane → collector.
@@ -23,8 +23,8 @@ Smoke test from your machine:
   kubectl -n {{ .Release.Namespace }} logs deploy/{{ .Release.Name }}-collector -f
 
 Scale the data plane:
-  helm upgrade {{ .Release.Name }} deploy/helm/pulse-telemetry -n {{ .Release.Namespace }} --reuse-values --set collector.replicas=3
-{{- if .Values.fleet.key | hasPrefix "pulse_dev_sk_" }}
+  helm upgrade {{ .Release.Name }} deploy/helm/telemetry-chopper -n {{ .Release.Namespace }} --reuse-values --set collector.replicas=3
+{{- if .Values.fleet.key | hasPrefix "chopper_dev_sk_" }}
 
 NOTE: this release uses the deterministic LOCAL DEV fleet credentials
 provisioned by the seed. Rotate fleet.id / fleet.key for any real deployment.

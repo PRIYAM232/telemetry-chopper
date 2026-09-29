@@ -11,7 +11,7 @@ import (
 )
 
 // The ROUTE contract, shared by all three signals: a match stamps the
-// enclosing RESOURCE with pulse.routing.destination and never drops — the
+// enclosing RESOURCE with chopper.routing.destination and never drops — the
 // fork itself happens downstream in the collector's routing connector.
 
 func routeRule(name, signal, field, op, value, destination string) PolicyRule {

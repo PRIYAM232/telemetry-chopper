@@ -1,12 +1,12 @@
-# Pulse release — artifact publishing on version tags (v1.0.0, v1.2.3-rc.1).
+# Telemetry Chopper release — artifact publishing on version tags (v1.0.0, v1.2.3-rc.1).
 #
 # Publishes to GitHub Container Registry under this repository's namespace:
 #   ghcr.io/<owner>/<repo>/control-plane          (Dockerfile `runner` stage)
 #   ghcr.io/<owner>/<repo>/control-plane-migrate  (Dockerfile `builder` stage —
 #                                                  the Prisma CLI + migrations
 #                                                  image the chart's hook Job runs)
-#   ghcr.io/<owner>/<repo>/otelcol-pulse          (custom collector distro)
-#   oci://ghcr.io/<owner>/charts/pulse-telemetry  (Helm chart, OCI registry)
+#   ghcr.io/<owner>/<repo>/otelcol-chopper          (custom collector distro)
+#   oci://ghcr.io/<owner>/charts/telemetry-chopper  (Helm chart, OCI registry)
 #
 # Auth is the workflow's own GITHUB_TOKEN via `packages: write` — no PAT to
 # provision or rotate. Images are tagged with the full semver, the minor
@@ -46,7 +46,7 @@ jobs:
             context: control-plane
             dockerfile: control-plane/Dockerfile
             target: builder
-          - image: otelcol-pulse
+          - image: otelcol-chopper
             # The collector Dockerfile copies data-plane/ from the repo root.
             context: .
             dockerfile: deploy/docker/Dockerfile.collector
@@ -86,7 +86,7 @@ jobs:
           target: ${{ matrix.target }}
           push: false
           load: true
-          tags: pulse-scan/${{ matrix.image }}:${{ github.sha }}
+          tags: chopper-scan/${{ matrix.image }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
 
@@ -96,7 +96,7 @@ jobs:
       - name: Gate release on CRITICAL CVEs (Trivy)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: pulse-scan/${{ matrix.image }}:${{ github.sha }}
+          image-ref: chopper-scan/${{ matrix.image }}:${{ github.sha }}
           format: table
           # CVE gate only. Trivy's secret scanner would flag the deterministic
           # dev fleet key baked into the collector's default config.
@@ -139,8 +139,8 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           OWNER="$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')"
-          helm package deploy/helm/pulse-telemetry \
+          helm package deploy/helm/telemetry-chopper \
             --version "$VERSION" \
             --app-version "$VERSION" \
             --destination dist/
-          helm push "dist/pulse-telemetry-${VERSION}.tgz" "oci://${REGISTRY}/${OWNER}/charts"
+          helm push "dist/telemetry-chopper-${VERSION}.tgz" "oci://${REGISTRY}/${OWNER}/charts"

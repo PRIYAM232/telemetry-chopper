@@ -1,4 +1,4 @@
-// /dashboard — the Pulse operator console.
+// /dashboard — the Telemetry Chopper operator console.
 //
 // Fully server-rendered: data is queried directly with Prisma, mutations go
 // through Server Actions (./actions.ts) that revalidate this path, and a tiny
@@ -19,7 +19,7 @@ import { SubmitButton } from "./pending";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Pulse — Fleet Dashboard",
+  title: "Telemetry Chopper — Fleet Dashboard",
   description: "Live telemetry savings and policy rules for your collector fleet.",
 };
 
@@ -123,7 +123,7 @@ export default async function DashboardPage() {
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Pulse
+            Telemetry Chopper
             <span className="ml-2 text-base font-normal text-zinc-500 dark:text-zinc-400">
               observability cost control
             </span>
@@ -358,7 +358,7 @@ function RuleCard({ rule }: { rule: PolicyRuleModel }) {
           {rule.actionType === PolicyAction.ROUTE && rule.targetDestination !== null && (
             <span
               className="shrink-0 rounded-md border border-sky-200 bg-sky-50 px-2 py-0.5 font-mono text-xs text-sky-700 dark:border-sky-900 dark:bg-sky-950 dark:text-sky-400"
-              title="Matching telemetry is tagged pulse.routing.destination and forked to this exporter by the collector's routing connector."
+              title="Matching telemetry is tagged chopper.routing.destination and forked to this exporter by the collector's routing connector."
             >
               → {rule.targetDestination}
             </span>

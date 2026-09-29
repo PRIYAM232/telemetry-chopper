@@ -66,11 +66,11 @@ export function ActionFields() {
           <input
             name="targetDestination"
             required
-            list="pulse-known-destinations"
+            list="chopper-known-destinations"
             placeholder="cold-storage"
             className={inputClass}
           />
-          <datalist id="pulse-known-destinations">
+          <datalist id="chopper-known-destinations">
             {KNOWN_DESTINATIONS.map((d) => (
               <option key={d} value={d} />
             ))}

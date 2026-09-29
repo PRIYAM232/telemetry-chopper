@@ -21,7 +21,7 @@ const fieldMetricName = "metric.name"
 // metricsProcessor filters metrics against the dynamic ruleset held by the
 // shared ruleEngine — the SAME engine instance the traces and logs processors
 // use, so one collector polls the policy endpoint once and sends one combined
-// heartbeat no matter how many signal pipelines reference pulse_filter.
+// heartbeat no matter how many signal pipelines reference chopper_filter.
 //
 // Scope: DROP (Phase 6) and ROUTE (Phase 7), evaluated per Metric (the name +
 // datapoints unit). REDACT and SAMPLE have no metrics semantics yet; see
@@ -58,7 +58,7 @@ func (p *metricsProcessor) Start(_ context.Context, _ component.Host) error {
 
 func (p *metricsProcessor) Shutdown(_ context.Context) error {
 	p.engine.stop()
-	p.logger.Info("pulse_filter metrics processor stopped")
+	p.logger.Info("chopper_filter metrics processor stopped")
 	return nil
 }
 
@@ -89,7 +89,7 @@ func (p *metricsProcessor) ConsumeMetrics(ctx context.Context, md pmetric.Metric
 	// every batch, concurrently across receivers.
 	p.engine.observeMetrics(ctx, int64(metricsIn), int64(metricsIn-metricsOut))
 
-	p.logger.Debug("pulse_filter processed metric batch",
+	p.logger.Debug("chopper_filter processed metric batch",
 		zap.Int("metrics_in", metricsIn),
 		zap.Int("metrics_dropped", metricsIn-metricsOut),
 		zap.Int("metrics_out", metricsOut),
@@ -133,7 +133,7 @@ func (p *metricsProcessor) evaluateMetric(rules []compiledRule, metric pmetric.M
 
 		switch rule.ActionType {
 		case ActionDrop:
-			p.logger.Debug("pulse_filter dropping metric",
+			p.logger.Debug("chopper_filter dropping metric",
 				zap.String("rule", rule.Name),
 				zap.String("metric_name", metric.Name()),
 			)
@@ -145,7 +145,7 @@ func (p *metricsProcessor) evaluateMetric(rules []compiledRule, metric pmetric.M
 			// later ROUTE matches overwrite it, and later rules may still
 			// drop the metric.
 			resAttrs.PutStr(attrRoutingDestination, rule.TargetDestination)
-			p.logger.Debug("pulse_filter tagged metric resource for routing",
+			p.logger.Debug("chopper_filter tagged metric resource for routing",
 				zap.String("rule", rule.Name),
 				zap.String("destination", rule.TargetDestination),
 				zap.String("metric_name", metric.Name()),
@@ -155,7 +155,7 @@ func (p *metricsProcessor) evaluateMetric(rules []compiledRule, metric pmetric.M
 			// bucket; the excess over the rule's rate is dropped — the same
 			// granularity DROP operates at.
 			if !rule.limiters.allow(throttleKeyMetric(rule, metric, resAttrs)) {
-				p.logger.Debug("pulse_filter dropping metric (throttle rate exceeded)",
+				p.logger.Debug("chopper_filter dropping metric (throttle rate exceeded)",
 					zap.String("rule", rule.Name),
 					zap.String("metric_name", metric.Name()),
 				)

@@ -15,11 +15,11 @@ import (
 // Type is the component type users reference in the collector YAML, e.g.
 //
 //	processors:
-//	  pulse_filter:
+//	  chopper_filter:
 //
 // MustNewType panics on invalid identifiers at init time, which is exactly
 // when we want to find out.
-var Type = component.MustNewType("pulse_filter")
+var Type = component.MustNewType("chopper_filter")
 
 // Stability per signal. Development keeps us honest until the rule engine is
 // real and benchmarked.
@@ -30,8 +30,8 @@ const (
 )
 
 // sharedEngines hands every signal processor created under one component ID
-// (e.g. `pulse_filter`, `pulse_filter/edge`) the same ruleEngine, so a
-// collector running pulse_filter in both a traces and a logs pipeline polls
+// (e.g. `chopper_filter`, `chopper_filter/edge`) the same ruleEngine, so a
+// collector running chopper_filter in both a traces and a logs pipeline polls
 // the policy endpoint once and sends one combined heartbeat. Engines are
 // kept across collector config reloads (refcount drops to zero, then climbs
 // back) and adopt the freshly unmarshaled Config while idle.
@@ -56,7 +56,7 @@ func (s *sharedEngines) getOrCreate(set processor.Settings, cfg *Config) *ruleEn
 		return int64(len(e.snapshotRules()))
 	})
 	if err != nil {
-		set.Logger.Warn("pulse_filter self-metrics disabled: instrument registration failed", zap.Error(err))
+		set.Logger.Warn("chopper_filter self-metrics disabled: instrument registration failed", zap.Error(err))
 	} else if tel != nil {
 		e.telemetry = tel
 	}
@@ -64,7 +64,7 @@ func (s *sharedEngines) getOrCreate(set processor.Settings, cfg *Config) *ruleEn
 	return e
 }
 
-// NewFactory registers the Pulse filter processor with the collector.
+// NewFactory registers the Telemetry Chopper filter processor with the collector.
 // ocb's generated components.go calls this exactly once at startup.
 func NewFactory() processor.Factory {
 	shared := &sharedEngines{engines: make(map[component.ID]*ruleEngine)}

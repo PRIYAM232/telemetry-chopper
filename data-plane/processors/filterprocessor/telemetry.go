@@ -10,12 +10,12 @@ import (
 // meterScope names the instrumentation scope on the collector's self-telemetry
 // meter. Mirrors the module path, the same convention mdatagen uses for the
 // upstream components.
-const meterScope = "github.com/PRIYAM232/pulse-telemetry/data-plane/processors/filterprocessor"
+const meterScope = "github.com/PRIYAM232/telemetry-chopper/data-plane/processors/filterprocessor"
 
 // engineTelemetry publishes the engine's counters on the collector's OWN
 // telemetry pipeline (Prometheus on :8888 by default), alongside the stock
 // otelcol_* process and pipeline metrics. This is the pull-based twin of the
-// stats heartbeat in engine.go: the heartbeat feeds the Pulse dashboard's
+// stats heartbeat in engine.go: the heartbeat feeds the Telemetry Chopper dashboard's
 // savings numbers through the control plane, these instruments feed the
 // operator's Prometheus/Grafana stack directly — self-monitoring must not
 // depend on the control plane being reachable.
@@ -33,7 +33,7 @@ type engineTelemetry struct {
 	metricsDropped  metric.Int64Counter
 }
 
-// newEngineTelemetry registers the pulse_filter instruments. rulesTotal is
+// newEngineTelemetry registers the chopper_filter instruments. rulesTotal is
 // observed at scrape time (an async gauge), so the rule count is always
 // current even though rulesets swap wholesale between scrapes.
 func newEngineTelemetry(ts component.TelemetrySettings, rulesTotal func() int64) (*engineTelemetry, error) {
@@ -58,16 +58,16 @@ func newEngineTelemetry(ts component.TelemetrySettings, rulesTotal func() int64)
 	}
 
 	t := &engineTelemetry{
-		spansReceived:   counter("otelcol_pulse_filter_spans_received", "Spans entering the pulse_filter processor.", "{spans}"),
-		spansDropped:    counter("otelcol_pulse_filter_spans_dropped", "Spans removed by pulse_filter rules (DROP, SAMPLE, THROTTLE).", "{spans}"),
-		logsReceived:    counter("otelcol_pulse_filter_logs_received", "Log records entering the pulse_filter processor.", "{records}"),
-		logsDropped:     counter("otelcol_pulse_filter_logs_dropped", "Log records removed by pulse_filter rules.", "{records}"),
-		metricsReceived: counter("otelcol_pulse_filter_metrics_received", "Metrics entering the pulse_filter processor.", "{metrics}"),
-		metricsDropped:  counter("otelcol_pulse_filter_metrics_dropped", "Metrics removed by pulse_filter rules.", "{metrics}"),
+		spansReceived:   counter("otelcol_chopper_filter_spans_received", "Spans entering the chopper_filter processor.", "{spans}"),
+		spansDropped:    counter("otelcol_chopper_filter_spans_dropped", "Spans removed by chopper_filter rules (DROP, SAMPLE, THROTTLE).", "{spans}"),
+		logsReceived:    counter("otelcol_chopper_filter_logs_received", "Log records entering the chopper_filter processor.", "{records}"),
+		logsDropped:     counter("otelcol_chopper_filter_logs_dropped", "Log records removed by chopper_filter rules.", "{records}"),
+		metricsReceived: counter("otelcol_chopper_filter_metrics_received", "Metrics entering the chopper_filter processor.", "{metrics}"),
+		metricsDropped:  counter("otelcol_chopper_filter_metrics_dropped", "Metrics removed by chopper_filter rules.", "{metrics}"),
 	}
 
-	_, err := meter.Int64ObservableGauge("otelcol_pulse_filter_rules",
-		metric.WithDescription("Rules in the currently synced pulse_filter ruleset (0 until the first successful policy sync)."),
+	_, err := meter.Int64ObservableGauge("otelcol_chopper_filter_rules",
+		metric.WithDescription("Rules in the currently synced chopper_filter ruleset (0 until the first successful policy sync)."),
 		metric.WithUnit("{rules}"),
 		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
 			o.Observe(rulesTotal())

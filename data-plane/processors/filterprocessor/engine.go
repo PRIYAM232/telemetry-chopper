@@ -120,7 +120,7 @@ func (e *ruleEngine) start() {
 	}
 
 	if e.cfg.SyncEndpoint == "" && e.cfg.StatsEndpoint == "" {
-		e.logger.Info("pulse_filter started in static pass-through mode (no sync_endpoint/stats_endpoint configured)")
+		e.logger.Info("chopper_filter started in static pass-through mode (no sync_endpoint/stats_endpoint configured)")
 		return
 	}
 
@@ -130,7 +130,7 @@ func (e *ruleEngine) start() {
 	if e.cfg.SyncEndpoint != "" {
 		e.backgroundDone.Add(1)
 		go e.runSyncLoop(ctx)
-		e.logger.Info("pulse_filter started with control-plane sync",
+		e.logger.Info("chopper_filter started with control-plane sync",
 			zap.String("sync_endpoint", e.cfg.SyncEndpoint),
 			zap.Duration("sync_interval", e.cfg.SyncInterval),
 		)
@@ -138,7 +138,7 @@ func (e *ruleEngine) start() {
 	if e.cfg.StatsEndpoint != "" {
 		e.backgroundDone.Add(1)
 		go e.runStatsLoop(ctx)
-		e.logger.Info("pulse_filter started with control-plane stats reporting",
+		e.logger.Info("chopper_filter started with control-plane stats reporting",
 			zap.String("stats_endpoint", e.cfg.StatsEndpoint),
 			zap.Duration("stats_interval", e.cfg.StatsInterval),
 		)
@@ -237,12 +237,12 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, e.cfg.SyncEndpoint, nil)
 	if err != nil {
-		e.logger.Error("pulse_filter policy sync: building request failed", zap.Error(err))
+		e.logger.Error("chopper_filter policy sync: building request failed", zap.Error(err))
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+string(e.cfg.FleetKey))
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("User-Agent", "otelcol-pulse/pulse_filter")
+	req.Header.Set("User-Agent", "otelcol-chopper/chopper_filter")
 	if e.lastETag != "" {
 		req.Header.Set("If-None-Match", e.lastETag)
 	}
@@ -251,7 +251,7 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 	if err != nil {
 		// Includes cancellation during Shutdown; ctx.Err() distinguishes it.
 		if ctx.Err() == nil {
-			e.logger.Warn("pulse_filter policy sync: request failed, keeping last known-good rules", zap.Error(err))
+			e.logger.Warn("chopper_filter policy sync: request failed, keeping last known-good rules", zap.Error(err))
 		}
 		return
 	}
@@ -261,14 +261,14 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 		// The control plane confirmed our ruleset is current: no payload to
 		// parse, no lock to take — the cheapest possible poll.
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		e.logger.Debug("pulse_filter policy sync: not modified (304), ruleset current")
+		e.logger.Debug("chopper_filter policy sync: not modified (304), ruleset current")
 		return
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		// Drain a little so the connection can be reused, then bail.
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
-		e.logger.Warn("pulse_filter policy sync: unexpected status, keeping last known-good rules",
+		e.logger.Warn("chopper_filter policy sync: unexpected status, keeping last known-good rules",
 			zap.Int("status", resp.StatusCode),
 		)
 		return
@@ -276,11 +276,11 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSyncResponseBytes+1))
 	if err != nil {
-		e.logger.Warn("pulse_filter policy sync: reading body failed", zap.Error(err))
+		e.logger.Warn("chopper_filter policy sync: reading body failed", zap.Error(err))
 		return
 	}
 	if len(body) > maxSyncResponseBytes {
-		e.logger.Warn("pulse_filter policy sync: response exceeds size cap, keeping last known-good rules",
+		e.logger.Warn("chopper_filter policy sync: response exceeds size cap, keeping last known-good rules",
 			zap.Int("cap_bytes", maxSyncResponseBytes),
 		)
 		return
@@ -288,7 +288,7 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 
 	var payload FleetPolicyResponse
 	if err := json.Unmarshal(body, &payload); err != nil {
-		e.logger.Warn("pulse_filter policy sync: invalid JSON payload", zap.Error(err))
+		e.logger.Warn("chopper_filter policy sync: invalid JSON payload", zap.Error(err))
 		return
 	}
 
@@ -304,7 +304,7 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 	changed := hash != e.lastRulesHash
 	e.rulesMu.Unlock()
 	if !changed {
-		e.logger.Debug("pulse_filter policy sync: ruleset unchanged")
+		e.logger.Debug("chopper_filter policy sync: ruleset unchanged")
 		return
 	}
 
@@ -330,7 +330,7 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 			enforcedMetrics++
 		}
 	}
-	e.logger.Info("pulse_filter policy sync: ruleset updated",
+	e.logger.Info("chopper_filter policy sync: ruleset updated",
 		zap.String("fleet_id", payload.FleetID),
 		zap.Int("rules_total", len(compiled)),
 		zap.Int("rules_enforced_traces", enforcedTraces),
@@ -407,7 +407,7 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 		e.metricsReceived.Add(stats.MetricsReceived)
 		e.metricsDropped.Add(stats.MetricsDropped)
 		if ctx.Err() == nil {
-			e.logger.Warn("pulse_filter stats report failed, counts carry over to next interval",
+			e.logger.Warn("chopper_filter stats report failed, counts carry over to next interval",
 				zap.Int64("traces_received", stats.TracesReceived),
 				zap.Int64("traces_dropped", stats.TracesDropped),
 				zap.Int64("logs_received", stats.LogsReceived),
@@ -420,7 +420,7 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 		return
 	}
 
-	e.logger.Debug("pulse_filter stats reported",
+	e.logger.Debug("chopper_filter stats reported",
 		zap.Int64("traces_received", stats.TracesReceived),
 		zap.Int64("traces_dropped", stats.TracesDropped),
 		zap.Int64("logs_received", stats.LogsReceived),
@@ -447,7 +447,7 @@ func (e *ruleEngine) postStats(ctx context.Context, stats statsPayload) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+string(e.cfg.FleetKey))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "otelcol-pulse/pulse_filter")
+	req.Header.Set("User-Agent", "otelcol-chopper/chopper_filter")
 
 	resp, err := e.httpClient.Do(req)
 	if err != nil {

@@ -1,6 +1,6 @@
-# Pulse Control Plane
+# Telemetry Chopper Control Plane
 
-Fleet management API for the `otelcol-pulse` data plane: Next.js 16 (App
+Fleet management API for the `otelcol-chopper` data plane: Next.js 16 (App
 Router, TypeScript), Prisma 7, PostgreSQL.
 
 Collectors poll `GET /api/v1/policies/:fleetId` with their fleet's API key and
@@ -20,7 +20,7 @@ against traces, logs, or metrics). The Go side of this contract lives in
 ## Local development
 
 ```bash
-# 1. PostgreSQL (from the repo root; data persists in the pulse-pgdata volume)
+# 1. PostgreSQL (from the repo root; data persists in the chopper-pgdata volume)
 docker compose -f deploy/docker/docker-compose.yaml up -d postgres
 
 # 2. Migrate + seed (from control-plane/)
@@ -33,12 +33,12 @@ npm run dev
 ```
 
 The seed provisions fleet `f1ee7000-0000-4000-8000-000000000001` with API key
-`pulse_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712` (**local dev only — rotate for
+`chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712` (**local dev only — rotate for
 any real deployment**). Smoke-test:
 
 ```bash
 curl -s http://localhost:3000/api/v1/policies/f1ee7000-0000-4000-8000-000000000001 \
-  -H "Authorization: Bearer pulse_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712" | jq
+  -H "Authorization: Bearer chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712" | jq
 ```
 
 Wrong or missing key → generic `401` (fleet IDs are not enumerable); malformed
@@ -52,7 +52,7 @@ With postgres + the dev server up, build and run the collector (repo root):
 make build && make run
 ```
 
-`data-plane/config/otelcol-dev.yaml` points `pulse_filter` at this API with a
+`data-plane/config/otelcol-dev.yaml` points `chopper_filter` at this API with a
 10s sync interval. Send test spans:
 
 ```bash
