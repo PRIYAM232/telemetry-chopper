@@ -28,6 +28,15 @@ exporters:
   # old otlp / otlphttp names still resolve but are deprecated aliases.
   - gomod: go.opentelemetry.io/collector/exporter/otlpexporter v0.156.0
   - gomod: go.opentelemetry.io/collector/exporter/otlphttpexporter v0.156.0
+  # Cold-storage sinks for ROUTE-to-archive pipelines (README: "Archiving to
+  # cold storage"). All three are alpha upstream as of v0.156.0.
+  #   awss3        — S3 bucket; storage_class GLACIER / GLACIER_IR / DEEP_ARCHIVE
+  #   azure_blob   — Blob container; no access-tier option, so move blobs to
+  #                  the Archive tier with an Azure lifecycle-management rule
+  #   file         — local path or mounted NAS share, with rotation + zstd
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/awss3exporter v0.156.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/azureblobexporter v0.156.0
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/exporter/fileexporter v0.156.0
 
 connectors:
   # Native OTel routing connector (the successor to the removed `routing`

@@ -89,6 +89,56 @@ Then create a rule in the dashboard: **ROUTE** · **LOGS** · `log.type` `EQUALS
 >
 > ROUTE also doesn't protect data from other rules: a DROP rule that matches audit logs (say, dropping `DEBUG`) removes them before they're routed.
 
+### Archiving to cold storage
+
+The `otelcol-chopper` distribution includes three archive exporters, so the `logs/cold` pipeline above can write straight to long-term storage:
+
+| Target | Exporter | How data reaches the archive tier |
+|---|---|---|
+| Amazon S3 Glacier | `awss3` | Set `storage_class` to `GLACIER`, `GLACIER_IR` or `DEEP_ARCHIVE` and objects are written directly into that class. |
+| Azure Archive Storage | `azure_blob` | There's no access-tier option: blobs land in the account's default tier. Add an Azure [lifecycle management](https://learn.microsoft.com/azure/storage/blobs/lifecycle-management-overview) rule to move them to Archive (it can run after 0 days). |
+| NAS | `file` | Point `path` at a mounted NFS/SMB share. |
+| Offline drives | `file` | A collector can't write to disconnected media. Write to local disk or the NAS, then copy to offline drives with your own scheduled job. |
+
+```yaml
+exporters:
+  awss3/glacier:
+    s3uploader:
+      region: us-east-1
+      s3_bucket: acme-audit-archive
+      s3_prefix: audit
+      storage_class: DEEP_ARCHIVE
+      compression: gzip
+    marshaler: otlp_json
+    sending_queue:
+      batch:
+        flush_timeout: 5m          # fewer, larger objects (see cost note below)
+  azure_blob/archive:
+    auth:
+      type: workload_identity      # or connection_string, service_principal, *_managed_identity
+      # ...plus that auth type's fields (client_id, tenant_id, etc.)
+    url: https://acmeaudit.blob.core.windows.net/
+    container:
+      logs: audit-logs             # must already exist; the exporter doesn't create it
+    format: json
+  file/nas:
+    path: /mnt/nas/audit/audit.jsonl
+    rotation: { max_megabytes: 512, max_backups: 0 }   # 0 = keep every rotated file
+
+service:
+  pipelines:
+    logs/cold: { receivers: [routing/logs], exporters: [awss3/glacier, azure_blob/archive, file/nas] }
+```
+
+A pipeline can list several exporters, so one ROUTE rule can archive to more than one place at once.
+
+Things to know before relying on this for audit or compliance data:
+
+- **All three exporters are alpha upstream** (OpenTelemetry Collector contrib v0.156.0). Test delivery end to end before depending on them.
+- **Small objects are expensive in Glacier and Azure Archive.** Each archived object has per-object overhead and a minimum storage duration (90–180 days in Glacier). Batch with `sending_queue.batch` so each upload is large, or write to a standard tier and let a lifecycle rule move data to the archive tier.
+- **Credentials and mounts.** S3 uses the standard AWS credential chain (an IAM role, or `AWS_*` environment variables). Azure needs one of the auth types above. The collector image runs as a non-root user, so a NAS path must be mounted into the container or pod as a volume that user can write to.
+- **NAS file format.** With `compression` off, the file is plain JSON, one line per batch, and can be read with `grep` or `jq`. With `compression: zstd`, each batch is a separate zstd frame preceded by a 4-byte length, so the file can't be opened with `zstd -d` directly. Leave compression off if people or scripts will read the files, and compress when you move them to offline media.
+
 ---
 
 ## Quick start — 5 minutes to value
@@ -142,7 +192,7 @@ In the dashboard, create a **DROP** rule for the dev fleet (for example: traces 
 
 The collector reports match/drop statistics back to the Control Plane every 10 seconds. The dashboard's telemetry view shows exactly what each rule is catching — that's your cost reduction, live, without touching a single YAML file or restarting a single process.
 
-> **Shipping to a real backend:** the packaged dev pipeline terminates in the `debug` exporter so you can see everything working. The distribution also ships the `otlp_grpc` and `otlp_http` exporters, so any OTLP endpoint (Jaeger, Tempo, Prometheus, Grafana Cloud, vendor OTLP intakes) is a config change in your collector's `hot`/`cold` pipelines — see [`deploy/sandbox/otelcol-sandbox.yaml`](deploy/sandbox/otelcol-sandbox.yaml). For vendor-specific exporters, add them to [`data-plane/builder-config.yaml`](data-plane/builder-config.yaml) and rebuild with `make build`.
+> **Shipping to a real backend:** the packaged dev pipeline terminates in the `debug` exporter so you can see everything working. The distribution also ships the `otlp_grpc` and `otlp_http` exporters, so any OTLP endpoint (Jaeger, Tempo, Prometheus, Grafana Cloud, vendor OTLP intakes) is a config change in your collector's `hot`/`cold` pipelines — see [`deploy/sandbox/otelcol-sandbox.yaml`](deploy/sandbox/otelcol-sandbox.yaml). For archives, it also ships the `awss3`, `azure_blob` and `file` exporters — see [Archiving to cold storage](#archiving-to-cold-storage). For vendor-specific exporters, add them to [`data-plane/builder-config.yaml`](data-plane/builder-config.yaml) and rebuild with `make build`.
 >
 > **Live REDACT/THROTTLE demo:** [`deploy/sandbox/`](deploy/sandbox/README.md) runs the full stack against real Jaeger and Prometheus backends with a noisy, PII-laden synthetic workload.
 
