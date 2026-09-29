@@ -49,3 +49,16 @@ replaces:
   # fixed in 1.82.1). Remove once the collector release line requires
   # >= 1.83.1 itself; `go version -m dist/otelcol-chopper` shows what shipped.
   - google.golang.org/grpc => google.golang.org/grpc v1.83.2
+  # Security floor for x/crypto. The v0.156.0 modules resolve
+  # golang.org/x/crypto v0.55.0, which carries two x/crypto/ssh channel
+  # deadlock DoS advisories: GO-2026-6354 (undecided channel) and
+  # GO-2026-6355 (established channel), both fixed in v0.56.0. The collector
+  # links no x/crypto/ssh code (govulncheck in source mode against dist/
+  # reports them unreachable); they appear in `govulncheck -mode=binary`
+  # only because ocb strips the symbol table (-s -w), which makes it flag
+  # every vulnerable symbol in the module. Pinned anyway so binary scans of
+  # the shipped artifact stay clean. GO-2026-5932 (x/crypto/openpgp is
+  # deprecated) has no fixed version and is a false positive for the same
+  # reason. Remove once the collector release line requires >= v0.56.0
+  # itself; `go version -m dist/otelcol-chopper` shows what shipped.
+  - golang.org/x/crypto => golang.org/x/crypto v0.56.0
