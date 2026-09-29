@@ -71,3 +71,19 @@ replaces:
   # reason. Remove once the collector release line requires >= v0.56.0
   # itself; `go version -m dist/otelcol-chopper` shows what shipped.
   - golang.org/x/crypto => golang.org/x/crypto v0.56.0
+  # Security floor for the collector's own OTLP log exporter. The v0.156.0
+  # modules resolve go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
+  # v0.20.0, which ignores the OTEL_EXPORTER_OTLP_{,LOGS_}CERTIFICATE /
+  # CLIENT_CERTIFICATE / CLIENT_KEY env vars, silently bypassing mTLS and CA
+  # pinning when `service.telemetry.logs` ships the collector's internal logs
+  # over OTLP gRPC: GO-2026-6508, fixed in v0.21.0 (reachable per govulncheck
+  # in source mode against dist/). v0.21.0 needs otel/log v0.21.0, which
+  # removed log.Value/log.KeyValue, so otelzap v0.19.0 no longer compiles; the
+  # consistent set is otelconf v0.25.0 (requires otlploggrpc v0.21.0 and moves
+  # the whole otel-go SDK/exporter set to v1.45.0 / v0.21.0) plus otelzap
+  # v0.20.0 (built against log v0.21.0). Remove all three together once the
+  # collector release line requires otlploggrpc >= v0.21.0 itself;
+  # `go version -m dist/otelcol-chopper` shows what shipped.
+  - go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc => go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc v0.21.0
+  - go.opentelemetry.io/contrib/otelconf => go.opentelemetry.io/contrib/otelconf v0.25.0
+  - go.opentelemetry.io/contrib/bridges/otelzap => go.opentelemetry.io/contrib/bridges/otelzap v0.20.0
