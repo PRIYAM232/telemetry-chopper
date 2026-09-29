@@ -23,11 +23,26 @@ spec:
         app.kubernetes.io/name: chopper-collector
         app.kubernetes.io/instance: {{ .Release.Name }}
         app.kubernetes.io/component: collector
+        {{- with .Values.collector.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       annotations:
         # Roll the pods whenever the pipeline config changes — the collector
         # only reads its config at startup.
         checksum/config: {{ include (print $.Template.BasePath "/configmap-collector.yaml") . | sha256sum }}
+        {{- with .Values.collector.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
+      {{- if or .Values.collector.serviceAccount.create .Values.collector.serviceAccount.name }}
+      # Identity for the cold-storage archive exporters (IRSA / AKS workload
+      # identity annotate this ServiceAccount).
+      serviceAccountName: {{ include "telemetry-chopper.collectorServiceAccountName" . }}
+      {{- end }}
+      {{- with .Values.collector.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: otelcol-chopper
           image: "{{ .Values.collector.image.repository }}:{{ .Values.collector.image.tag }}"
@@ -37,6 +52,26 @@ spec:
           args:
             - --config
             - /etc/otelcol/otelcol-k8s.yaml
+          {{- if or .Values.collector.extraEnv .Values.collector.coldStorage.file.enabled }}
+          # Read by the collector config as ${env:NAME} (e.g. archive
+          # exporter credentials), so secrets stay out of the ConfigMap.
+          env:
+            {{- if .Values.collector.coldStorage.file.enabled }}
+            # Per-pod archive file names, so replicas sharing one volume
+            # never write to (or rotate) the same file.
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- end }}
+            {{- with .Values.collector.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- end }}
+          {{- with .Values.collector.extraEnvFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: otlp-grpc
               containerPort: 4317
@@ -50,6 +85,10 @@ spec:
             - name: config
               mountPath: /etc/otelcol
               readOnly: true
+            {{- if .Values.collector.coldStorage.file.enabled }}
+            - name: archive
+              mountPath: {{ .Values.collector.coldStorage.file.mountPath }}
+            {{- end }}
           # The distro doesn't bundle the health_check extension (see
           # data-plane/builder-config.yaml), so probe the OTLP gRPC listener:
           # it only binds once the pipelines are built and started.
@@ -72,6 +111,27 @@ spec:
         - name: config
           configMap:
             name: {{ .Release.Name }}-collector-config
+        {{- if .Values.collector.coldStorage.file.enabled }}
+        # collector.coldStorage.file: the NAS/PVC the file archive writes to.
+        - name: archive
+          {{- toYaml .Values.collector.coldStorage.file.volume | nindent 10 }}
+        {{- end }}
+{{- if .Values.collector.serviceAccount.create }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "telemetry-chopper.collectorServiceAccountName" . }}
+  labels:
+    app.kubernetes.io/name: chopper-collector
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: collector
+    {{- include "telemetry-chopper.labels" . | nindent 4 }}
+  {{- with .Values.collector.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
 ---
 # OTLP entrypoint for telemetry producers. ClusterIP by default; set
 # collector.service.type=LoadBalancer to expose 4317/4318 outside the

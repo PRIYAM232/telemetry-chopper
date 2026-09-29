@@ -64,6 +64,101 @@ collector:
     limits:
       memory: 512Mi
 
+  # Identity for the archive exporters below. Leave create: false to run as
+  # the namespace's default ServiceAccount. For cloud workload identity,
+  # create one and annotate it, e.g.
+  #   EKS IRSA:  eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/chopper-archive
+  #   AKS:       azure.workload.identity/client-id: <managed-identity-client-id>
+  #              (AKS also needs podLabels: { azure.workload.identity/use: "true" })
+  serviceAccount:
+    create: false
+    # Defaults to <release>-collector when create is true.
+    name: ""
+    annotations: {}
+  podLabels: {}
+  podAnnotations: {}
+  # Pod-level securityContext. The image runs as the distroless nonroot user
+  # (uid/gid 65532); a file archive on a PVC usually needs fsGroup: 65532 so
+  # that user can write to it. NFS ignores fsGroup — set ownership on the
+  # export instead.
+  podSecurityContext: {}
+  # Extra environment for the collector container, e.g. static cloud
+  # credentials from an existing Secret. The collector config can read any of
+  # these as ${env:NAME}, so secrets never land in the ConfigMap.
+  extraEnv: []
+  #  - name: AWS_ACCESS_KEY_ID
+  #    valueFrom: { secretKeyRef: { name: chopper-archive-aws, key: access-key-id } }
+  extraEnvFrom: []
+  #  - secretRef: { name: chopper-archive-azure }
+
+  # Archive exporters for the traces/cold, logs/cold and metrics/cold
+  # pipelines, i.e. everything a ROUTE rule sends to "cold-storage" (see the
+  # README's "Archiving to cold storage"). Any combination can be enabled;
+  # every enabled exporter receives all cold data. With none enabled, the
+  # cold pipelines end in the debug exporter, as before.
+  # All three exporters are alpha upstream (collector contrib v0.156.0).
+  coldStorage:
+    # Batch before each upload so archive tiers get fewer, larger objects
+    # (archive classes bill per object and have minimum storage durations).
+    # Applies to the s3 and azureBlob exporters.
+    batchFlushTimeout: 5m
+
+    s3:
+      enabled: false
+      region: us-east-1
+      bucket: ""
+      prefix: telemetry
+      # STANDARD, STANDARD_IA, GLACIER_IR, GLACIER, DEEP_ARCHIVE, ...
+      storageClass: DEEP_ARCHIVE
+      compression: gzip
+      # otlp_json or otlp_proto.
+      marshaler: otlp_json
+      # Only for S3-compatible stores (MinIO, Ceph, ...); leave empty for AWS.
+      endpoint: ""
+      forcePathStyle: false
+      # Credentials come from the standard AWS chain: IRSA (serviceAccount
+      # annotation above) or AWS_* variables via extraEnv/extraEnvFrom.
+
+    azureBlob:
+      enabled: false
+      # Storage account endpoint, e.g. https://acmeaudit.blob.core.windows.net/
+      # Not needed when auth.type is connection_string.
+      url: ""
+      # Passed through as the exporter's auth block. Types:
+      # connection_string, service_principal, system_managed_identity,
+      # user_managed_identity, workload_identity. Keep secrets out of values:
+      #   { type: connection_string, connection_string: "${env:AZURE_STORAGE_CONNECTION_STRING}" }
+      auth:
+        type: workload_identity
+      # Containers must already exist; the exporter doesn't create them.
+      # Azure has no per-blob tier setting in the exporter: add a lifecycle
+      # management rule on the account to move blobs to the Archive tier.
+      containers:
+        traces: traces
+        logs: logs
+        metrics: metrics
+      format: json
+
+    file:
+      enabled: false
+      # Directory the archive volume is mounted at. Each pod writes its own
+      # file per signal under it: traces-<pod>.jsonl, logs-<pod>.jsonl,
+      # metrics-<pod>.jsonl, so replicas can share one volume.
+      mountPath: /var/lib/otelcol/archive
+      # Any Kubernetes volume source for that directory. Required when
+      # enabled, e.g.
+      #   nfs: { server: nas.internal, path: /exports/telemetry }
+      #   persistentVolumeClaim: { claimName: chopper-archive }
+      volume: {}
+      rotation:
+        maxMegabytes: 512
+        # 0 keeps every rotated file.
+        maxBackups: 0
+      # "" writes plain JSON lines (readable with grep/jq). "zstd" compresses
+      # each batch into a length-prefixed frame that `zstd -d` can't read
+      # directly — compress when moving files to offline media instead.
+      compression: ""
+
 metrics:
   # Phase 10 self-monitoring. The collector ALWAYS serves its own metrics
   # (Prometheus text format at /metrics) on this port — stock otelcol_*

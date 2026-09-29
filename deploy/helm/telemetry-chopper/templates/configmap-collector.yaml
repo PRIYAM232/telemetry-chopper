@@ -60,6 +60,55 @@ data:
         verbosity: basic
       debug/cold:
         verbosity: basic
+      {{- with .Values.collector.coldStorage }}
+      {{- if .s3.enabled }}
+      # Archive exporters (collector.coldStorage) for the */cold pipelines.
+      awss3/archive:
+        s3uploader:
+          region: {{ .s3.region | quote }}
+          s3_bucket: {{ .s3.bucket | quote }}
+          s3_prefix: {{ .s3.prefix | quote }}
+          storage_class: {{ .s3.storageClass | quote }}
+          {{- if .s3.compression }}
+          compression: {{ .s3.compression | quote }}
+          {{- end }}
+          {{- if .s3.endpoint }}
+          endpoint: {{ .s3.endpoint | quote }}
+          {{- end }}
+          s3_force_path_style: {{ .s3.forcePathStyle }}
+        marshaler: {{ .s3.marshaler | quote }}
+        sending_queue:
+          batch:
+            flush_timeout: {{ .batchFlushTimeout }}
+      {{- end }}
+      {{- if .azureBlob.enabled }}
+      azure_blob/archive:
+        {{- if .azureBlob.url }}
+        url: {{ .azureBlob.url | quote }}
+        {{- end }}
+        auth:
+          {{- toYaml .azureBlob.auth | nindent 10 }}
+        container:
+          {{- toYaml .azureBlob.containers | nindent 10 }}
+        format: {{ .azureBlob.format | quote }}
+        sending_queue:
+          batch:
+            flush_timeout: {{ .batchFlushTimeout }}
+      {{- end }}
+      {{- if .file.enabled }}
+      {{- $file := .file }}
+      {{- range list "traces" "logs" "metrics" }}
+      file/archive-{{ . }}:
+        path: {{ printf "%s/%s-${env:POD_NAME}.jsonl" $file.mountPath . | quote }}
+        rotation:
+          max_megabytes: {{ $file.rotation.maxMegabytes }}
+          max_backups: {{ $file.rotation.maxBackups }}
+        {{- if $file.compression }}
+        compression: {{ $file.compression | quote }}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- end }}
 
     service:
       telemetry:
@@ -105,16 +154,16 @@ data:
           exporters: [debug/hot]
         traces/cold:
           receivers: [routing/traces]
-          exporters: [debug/cold]
+          exporters: {{ include "telemetry-chopper.coldExporters" (dict "root" $ "signal" "traces") }}
         logs/hot:
           receivers: [routing/logs]
           exporters: [debug/hot]
         logs/cold:
           receivers: [routing/logs]
-          exporters: [debug/cold]
+          exporters: {{ include "telemetry-chopper.coldExporters" (dict "root" $ "signal" "logs") }}
         metrics/hot:
           receivers: [routing/metrics]
           exporters: [debug/hot]
         metrics/cold:
           receivers: [routing/metrics]
-          exporters: [debug/cold]
+          exporters: {{ include "telemetry-chopper.coldExporters" (dict "root" $ "signal" "metrics") }}

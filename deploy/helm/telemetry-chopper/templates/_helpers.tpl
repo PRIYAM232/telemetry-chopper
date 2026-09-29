@@ -31,3 +31,41 @@ chopper_filter sync/stats endpoints hang off this).
 {{- define "telemetry-chopper.controlPlaneUrl" -}}
 http://{{ .Release.Name }}-control-plane:{{ .Values.controlPlane.service.port }}
 {{- end }}
+
+{{/*
+Exporter list for one cold pipeline (pass the signal name: traces, logs or
+metrics). The enabled collector.coldStorage archive exporters, or debug/cold
+when none is enabled. Also fails the render early on incomplete archive
+settings, so a misconfigured release never reaches the cluster.
+*/}}
+{{- define "telemetry-chopper.coldExporters" -}}
+{{- $cs := .root.Values.collector.coldStorage -}}
+{{- $out := list -}}
+{{- if $cs.s3.enabled -}}
+{{- if not $cs.s3.bucket }}{{ fail "collector.coldStorage.s3.enabled requires collector.coldStorage.s3.bucket" }}{{ end -}}
+{{- $out = append $out "awss3/archive" -}}
+{{- end -}}
+{{- if $cs.azureBlob.enabled -}}
+{{- if and (ne (toString $cs.azureBlob.auth.type) "connection_string") (not $cs.azureBlob.url) }}{{ fail "collector.coldStorage.azureBlob.url is required unless auth.type is connection_string" }}{{ end -}}
+{{- $out = append $out "azure_blob/archive" -}}
+{{- end -}}
+{{- if $cs.file.enabled -}}
+{{- if not $cs.file.volume }}{{ fail "collector.coldStorage.file.enabled requires collector.coldStorage.file.volume (e.g. nfs or persistentVolumeClaim)" }}{{ end -}}
+{{- $out = append $out (printf "file/archive-%s" .signal) -}}
+{{- end -}}
+{{- if not $out -}}
+{{- $out = list "debug/cold" -}}
+{{- end -}}
+[{{ join ", " $out }}]
+{{- end }}
+
+{{/*
+ServiceAccount name for the collector pods.
+*/}}
+{{- define "telemetry-chopper.collectorServiceAccountName" -}}
+{{- if .Values.collector.serviceAccount.create -}}
+{{- default (printf "%s-collector" .Release.Name) .Values.collector.serviceAccount.name -}}
+{{- else -}}
+{{- default "default" .Values.collector.serviceAccount.name -}}
+{{- end -}}
+{{- end }}

@@ -17,7 +17,7 @@ deploy/helm/telemetry-chopper/
     ├── postgres.yaml             # StatefulSet + PVC template + headless Service
     ├── migration-job.yaml        # prisma migrate deploy + db seed (Helm hook)
     ├── control-plane.yaml        # Next.js Deployment + Service :3000
-    ├── collector.yaml            # otelcol-chopper Deployment + Service :4317/:4318/:8888
+    ├── collector.yaml            # otelcol-chopper Deployment + Service :4317/:4318/:8888 (+ optional ServiceAccount)
     ├── servicemonitor.yaml       # Prometheus Operator scrape config (gated)
     ├── dashboard-configmap.yaml  # Grafana sidecar dashboard (gated)
     └── NOTES.txt
@@ -162,8 +162,87 @@ curl -s localhost:8888/metrics | grep chopper_filter
 Every pod behind the Service is scraped individually; `kubectl -n chopper get
 endpoints chopper-collector` lists the addresses Prometheus will target.
 
+## Archiving to cold storage
+
+By default the `traces/cold`, `logs/cold` and `metrics/cold` pipelines (everything
+a ROUTE rule sends to `cold-storage`) end in the `debug` exporter. Enable any
+combination of `collector.coldStorage.s3`, `.azureBlob` and `.file` to archive
+that data instead. Every enabled exporter receives all cold data. See
+[Archiving to cold storage](../../README.md#archiving-to-cold-storage) in the main
+README for how each target reaches its archive tier and the caveats (all
+three exporters are alpha upstream).
+
+**S3 Glacier on EKS**, with IRSA credentials:
+
+```yaml
+collector:
+  serviceAccount:
+    create: true
+    annotations: { eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/chopper-archive }
+  coldStorage:
+    s3: { enabled: true, region: us-east-1, bucket: acme-audit-archive, storageClass: DEEP_ARCHIVE }
+```
+
+The role needs `s3:PutObject` on the bucket. Off EKS, put `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` in a Secret and pass it with `collector.extraEnvFrom`.
+
+**Azure Blob on AKS**, with workload identity (add a lifecycle management rule on
+the storage account to move blobs to the Archive tier):
+
+```yaml
+collector:
+  serviceAccount:
+    create: true
+    annotations: { azure.workload.identity/client-id: <managed-identity-client-id> }
+  podLabels: { azure.workload.identity/use: "true" }
+  coldStorage:
+    azureBlob:
+      enabled: true
+      url: https://acmeaudit.blob.core.windows.net/
+      auth: { type: workload_identity }
+      containers: { traces: audit-traces, logs: audit-logs, metrics: audit-metrics }
+```
+
+The containers must already exist, and the identity needs the *Storage Blob
+Data Contributor* role on them. To use a connection string instead, keep it in a
+Secret and reference it as an environment variable, so it never lands in the
+ConfigMap:
+
+```yaml
+collector:
+  extraEnvFrom: [{ secretRef: { name: chopper-archive-azure } }]   # has AZURE_STORAGE_CONNECTION_STRING
+  coldStorage:
+    azureBlob:
+      enabled: true
+      auth: { type: connection_string, connection_string: "${env:AZURE_STORAGE_CONNECTION_STRING}" }
+```
+
+**NAS or PVC**, with the file exporter. Each pod writes `traces-<pod>.jsonl`,
+`logs-<pod>.jsonl` and `metrics-<pod>.jsonl` under `mountPath`, so replicas can
+share one `ReadWriteMany` volume without writing to the same file:
+
+```yaml
+collector:
+  podSecurityContext: { fsGroup: 65532 }   # lets the non-root collector write to a PVC
+  coldStorage:
+    file:
+      enabled: true
+      volume: { nfs: { server: nas.internal, path: /exports/telemetry } }
+      # or: volume: { persistentVolumeClaim: { claimName: chopper-archive } }
+```
+
+NFS ignores `fsGroup`, so make the export writable by uid/gid 65532 on the NAS
+side. With `collector.replicas` > 1, the volume must be `ReadWriteMany` (NFS
+is); a `ReadWriteOnce` PVC only works when every replica lands on the same
+node. A new pod gets a new name, so a restarted pod starts new files instead of
+appending to the old ones.
+
+The chart stops `helm install` with a clear error if an enabled archive is
+missing its bucket, storage URL (unless you use a connection string) or volume.
+
 ## Real environments
 
+- **Cold storage**: see [Archiving to cold storage](#archiving-to-cold-storage).
 - **Managed database**: `--set postgres.enabled=false --set database.externalUrl=postgresql://…` —
   drops the StatefulSet entirely; secret, migration job, and control plane
   all follow the external URL.
