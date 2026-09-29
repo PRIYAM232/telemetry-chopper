@@ -6,8 +6,9 @@
 #   collector-build — assembles the otelcol-chopper distro with ocb, proving
 #                     builder-config.yaml and the processor still compose
 #   control-plane   — ESLint + Prisma schema validation
-#   helm            — chart lint + a full render with the Phase 10
-#                     monitoring toggles on, so gated templates can't rot
+#   helm            — chart lint + full renders with the Phase 10
+#                     monitoring toggles and every cold-storage archive on,
+#                     so gated templates can't rot
 #   image-scan      — builds the three release images and fails on CRITICAL
 #                     CVEs (Trivy), so a vulnerable base never reaches a tag
 #   sandbox-image   — build-only check of the local loadgen image (never
@@ -122,6 +123,23 @@ jobs:
           --set metrics.serviceMonitor.enabled=true
           --set metrics.dashboard.enabled=true
           > /dev/null
+      - name: Render with every cold-storage archive enabled
+        run: >
+          helm template chopper deploy/helm/telemetry-chopper
+          --set collector.serviceAccount.create=true
+          --set collector.coldStorage.s3.enabled=true
+          --set collector.coldStorage.s3.bucket=ci-bucket
+          --set collector.coldStorage.azureBlob.enabled=true
+          --set collector.coldStorage.azureBlob.url=https://ci.blob.core.windows.net/
+          --set collector.coldStorage.file.enabled=true
+          --set collector.coldStorage.file.volume.emptyDir.medium=Memory
+          > /dev/null
+      - name: Incomplete cold-storage settings fail the render
+        run: |
+          if helm template chopper deploy/helm/telemetry-chopper \
+               --set collector.coldStorage.s3.enabled=true > /dev/null 2>&1; then
+            echo "expected s3.enabled without s3.bucket to fail the render"; exit 1
+          fi
 
   image-scan:
     name: ${{ matrix.image }} CVE scan (Trivy)
