@@ -64,10 +64,30 @@ Every rule targets a signal (traces, logs, or metrics), matches on attributes or
 | **DROP** | Discards matching telemetry outright at the edge. | Health-check spans, `DEBUG` logs from prod, k8s liveness noise. |
 | **SAMPLE** | Keeps a configurable fraction (`0`–`1`) of matching telemetry, probabilistically, so aggregate statistics stay representative. | Keep 5% of high-volume, low-value traces instead of 100%. |
 | **REDACT** | Masks only the matched substrings via zero-allocation regex — the rest of the payload passes through untouched. | SSNs, credit-card numbers, bearer tokens, emails — scrubbed before data leaves your network. |
-| **ROUTE** | Never drops; stamps the matching telemetry's resource with a routing destination that forks it into a different pipeline (e.g. `traces/in` → `traces/hot` or `traces/cold`). | Send audit logs to cheap cold storage while errors go to your hot APM backend. |
+| **ROUTE** | Never drops; stamps the matching telemetry's resource with a routing destination that forks it into a different pipeline (e.g. `traces/in` → `traces/hot` or `traces/cold`). | Send audit logs to cheap cold storage while errors go to your hot APM backend ([how](#routing-to-hot-and-cold-backends)). |
 | **THROTTLE** | Token-bucket rate limiting (events/sec), isolated per tenant by an attribute key of your choice — one bucket per attribute *value*. | Cap each `tenant.id` at 100 logs/sec so one runaway customer can't flood the pipeline for everyone. |
 
 Malformed rules (e.g. a SAMPLE without a rate) are skipped, not fatal — the data plane always fails open rather than blocking telemetry.
+
+### Routing to hot and cold backends
+
+A ROUTE rule doesn't choose a backend itself. It tags matching telemetry with `chopper.routing.destination`, and the collector's routing connector sends tagged data to the pipeline registered for that destination. Anything untagged goes to `default_pipelines`, so only the data you want moved needs a rule:
+
+```yaml
+connectors:
+  routing/logs:
+    default_pipelines: [logs/hot]          # errors and everything else untagged
+    table:
+      - context: resource
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
+        pipelines: [logs/cold]
+```
+
+Then create a rule in the dashboard: **ROUTE** · **LOGS** · `log.type` `EQUALS` `audit` · destination `cold-storage`. The destination must exactly match the value in the routing table; any other value falls through to the default pipeline. See [`deploy/sandbox/otelcol-sandbox.yaml`](deploy/sandbox/otelcol-sandbox.yaml) for the full hot/cold pipeline wiring.
+
+> **Routing is per resource, not per record.** The routing connector moves whole resources (one service instance's batch), so a ROUTE match tags the *resource* its record belongs to. If audit and error logs come from the same service in the same batch, one matching audit record sends the errors to cold storage too. Emit audit logs under their own resource, for example a separate logger whose resource carries `log.type=audit` or a distinct `service.name`, and match on that resource attribute. Avoid routing on per-record attributes, `log.severity` or `log.body` when routed and unrouted data share a resource. If you can't separate them, the routing connector's `context: log` routes each record on its own attributes, but that condition lives in the collector config rather than the dashboard.
+>
+> ROUTE also doesn't protect data from other rules: a DROP rule that matches audit logs (say, dropping `DEBUG`) removes them before they're routed.
 
 ---
 
