@@ -1,17 +1,17 @@
-# Default values for pulse-telemetry.
+# Default values for telemetry-chopper.
 #
 # Image defaults are the local dev tags produced by the repo's Docker builds
-# (see deploy/helm/pulse-telemetry/README.md for the build + `kind load`
+# (see deploy/helm/telemetry-chopper/README.md for the build + `kind load`
 # commands). Nothing here is published to a registry — pullPolicy stays
 # IfNotPresent so kind/minikube use the pre-loaded images.
 #
-# Resource names are derived from the release name: install as `pulse` and
-# you get pulse-control-plane, pulse-collector, pulse-postgres — the DNS
+# Resource names are derived from the release name: install as `chopper` and
+# you get chopper-control-plane, chopper-collector, chopper-postgres — the DNS
 # names baked into the collector config.
 
 controlPlane:
   image:
-    repository: pulse/control-plane
+    repository: telemetry-chopper/control-plane
     tag: dev
     pullPolicy: IfNotPresent
   replicas: 1
@@ -29,7 +29,7 @@ migrator:
   # the Prisma CLI plus schema, migrations, and the seed script. Runs as a
   # one-shot hook Job (see templates/migration-job.yaml).
   image:
-    repository: pulse/control-plane-migrate
+    repository: telemetry-chopper/control-plane-migrate
     tag: dev
     pullPolicy: IfNotPresent
   backoffLimit: 3
@@ -43,7 +43,7 @@ collector:
   # The horizontally scalable data plane. An edge proxy, not a node agent —
   # Deployment, not DaemonSet. Raise replicas as telemetry volume grows.
   image:
-    repository: pulse/otelcol-pulse
+    repository: telemetry-chopper/otelcol-chopper
     tag: dev
     pullPolicy: IfNotPresent
   replicas: 1
@@ -51,7 +51,7 @@ collector:
     # ClusterIP serves in-cluster telemetry producers; switch to LoadBalancer
     # to expose OTLP 4317/4318 to producers outside the cluster.
     type: ClusterIP
-  # pulse_filter emits its batch observations at debug level; raise to info
+  # chopper_filter emits its batch observations at debug level; raise to info
   # to quiet the collector once the stack is verified.
   telemetryLogLevel: debug
   # Per-span walks don't belong in a packaged run (same stance as V1's
@@ -67,7 +67,7 @@ collector:
 metrics:
   # Phase 10 self-monitoring. The collector ALWAYS serves its own metrics
   # (Prometheus text format at /metrics) on this port — stock otelcol_*
-  # process/pipeline metrics plus the otelcol_pulse_filter_* rules/throughput
+  # process/pipeline metrics plus the otelcol_chopper_filter_* rules/throughput
   # instruments. The two blocks below only control how the surrounding
   # monitoring stack discovers them; both default off so the chart keeps
   # installing on clusters without the Prometheus Operator CRDs or Grafana.
@@ -94,14 +94,14 @@ metrics:
     # own namespace (searchNamespace). Empty → the release namespace.
     namespace: ""
     additionalLabels: {}
-    # Sidecar folder routing, e.g.: annotations: { grafana_folder: Pulse }
+    # Sidecar folder routing, e.g.: annotations: { grafana_folder: "Telemetry Chopper" }
     annotations: {}
 
 fleet:
   # Deterministic LOCAL DEV fleet provisioned by the migrator's seed step —
   # rotate both values for any real deployment.
   id: f1ee7000-0000-4000-8000-000000000001
-  key: pulse_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
+  key: chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
   syncInterval: 10s
   statsInterval: 10s
 
@@ -115,9 +115,9 @@ postgres:
     tag: 16-alpine
     pullPolicy: IfNotPresent
   auth:
-    username: pulse
-    password: pulse
-    database: pulse_control
+    username: chopper
+    password: chopper
+    database: chopper_control
   storage:
     size: 1Gi
     # Empty string → the cluster's default StorageClass (kind and minikube
@@ -132,7 +132,7 @@ postgres:
 
 database:
   # Full connection URL for an external/managed database, e.g.
-  # postgresql://user:pass@my-rds:5432/pulse_control?schema=public
+  # postgresql://user:pass@my-rds:5432/chopper_control?schema=public
   # When set, it overrides the in-chart postgres wiring everywhere
   # (secret, migration job, control plane).
   externalUrl: ""

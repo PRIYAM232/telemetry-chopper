@@ -50,7 +50,7 @@ func (p *tracesProcessor) Start(_ context.Context, _ component.Host) error {
 
 func (p *tracesProcessor) Shutdown(_ context.Context) error {
 	p.engine.stop()
-	p.logger.Info("pulse_filter traces processor stopped")
+	p.logger.Info("chopper_filter traces processor stopped")
 	return nil
 }
 
@@ -79,7 +79,7 @@ func (p *tracesProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) e
 	// every batch, concurrently across receivers.
 	p.engine.observeTraces(ctx, int64(spansIn), int64(spansIn-spansOut))
 
-	p.logger.Debug("pulse_filter processed trace batch",
+	p.logger.Debug("chopper_filter processed trace batch",
 		zap.Int("spans_in", spansIn),
 		zap.Int("spans_dropped", spansIn-spansOut),
 		zap.Int("spans_out", spansOut),
@@ -129,7 +129,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 
 		switch rule.ActionType {
 		case ActionDrop:
-			p.logger.Debug("pulse_filter dropping span",
+			p.logger.Debug("chopper_filter dropping span",
 				zap.String("rule", rule.Name),
 				zap.String("span_name", span.Name()),
 				zap.String("trace_id", span.TraceID().String()),
@@ -141,7 +141,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 			// whole — never split into orphaned children — with no coordination
 			// between spans, batches, or collector instances.
 			if traceIDBucket(span.TraceID()) >= sampleKeepThreshold(*rule.SampleRate) {
-				p.logger.Debug("pulse_filter dropping span (trace not sampled)",
+				p.logger.Debug("chopper_filter dropping span (trace not sampled)",
 					zap.String("rule", rule.Name),
 					zap.String("span_name", span.Name()),
 					zap.String("trace_id", span.TraceID().String()),
@@ -159,7 +159,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 			// under this resource inherits the destination; later ROUTE
 			// matches overwrite it, and later rules may still drop the span.
 			resAttrs.PutStr(attrRoutingDestination, rule.TargetDestination)
-			p.logger.Debug("pulse_filter tagged span resource for routing",
+			p.logger.Debug("chopper_filter tagged span resource for routing",
 				zap.String("rule", rule.Name),
 				zap.String("destination", rule.TargetDestination),
 				zap.String("span_name", span.Name()),
@@ -171,7 +171,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 			// per trace — a clamped burst sheds whichever spans arrive after
 			// the bucket empties, so throttled traces can lose spans.
 			if !rule.limiters.allow(throttleKey(rule, span.Attributes(), resAttrs)) {
-				p.logger.Debug("pulse_filter dropping span (throttle rate exceeded)",
+				p.logger.Debug("chopper_filter dropping span (throttle rate exceeded)",
 					zap.String("rule", rule.Name),
 					zap.String("span_name", span.Name()),
 					zap.String("trace_id", span.TraceID().String()),
@@ -216,7 +216,7 @@ func (p *tracesProcessor) redactAttribute(rule *compiledRule, span ptrace.Span, 
 		target.PutStr(rule.ConditionField, redactedPlaceholder)
 	}
 
-	p.logger.Debug("pulse_filter redacted attribute",
+	p.logger.Debug("chopper_filter redacted attribute",
 		zap.String("rule", rule.Name),
 		zap.String("attribute", rule.ConditionField),
 		zap.String("span_name", span.Name()),
@@ -283,7 +283,7 @@ func (p *tracesProcessor) logSpanDetails(td ptrace.Traces) {
 			spans := sss.At(j).Spans()
 			for k := 0; k < spans.Len(); k++ {
 				span := spans.At(k)
-				p.logger.Debug("pulse_filter span",
+				p.logger.Debug("chopper_filter span",
 					zap.String("trace_id", span.TraceID().String()),
 					zap.String("span_id", span.SpanID().String()),
 					zap.String("name", span.Name()),

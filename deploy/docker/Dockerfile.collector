@@ -1,6 +1,6 @@
-# Multi-stage build for the otelcol-pulse distribution.
+# Multi-stage build for the otelcol-chopper distribution.
 # Build context must be the repository root:
-#   docker build -f deploy/docker/Dockerfile.collector -t pulse/otelcol-pulse:dev .
+#   docker build -f deploy/docker/Dockerfile.collector -t telemetry-chopper/otelcol-chopper:dev .
 
 # OCB v0.156.0 requires go >= 1.25, and the official images pin
 # GOTOOLCHAIN=local — the base image's toolchain is the one that runs.
@@ -18,11 +18,11 @@ RUN cd data-plane && /go/bin/builder --config builder-config.yaml
 
 FROM gcr.io/distroless/static-debian12:nonroot
 
-COPY --from=build /src/data-plane/dist/otelcol-pulse /otelcol-pulse
+COPY --from=build /src/data-plane/dist/otelcol-chopper /otelcol-chopper
 COPY data-plane/config/otelcol-dev.yaml /etc/otelcol/config.yaml
 
 # OTLP gRPC / OTLP HTTP
 EXPOSE 4317 4318
 
-ENTRYPOINT ["/otelcol-pulse"]
+ENTRYPOINT ["/otelcol-chopper"]
 CMD ["--config", "/etc/otelcol/config.yaml"]

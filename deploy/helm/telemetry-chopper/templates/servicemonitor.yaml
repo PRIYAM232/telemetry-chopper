@@ -10,17 +10,17 @@ kind: ServiceMonitor
 metadata:
   name: {{ .Release.Name }}-collector
   labels:
-    app.kubernetes.io/name: pulse-collector
+    app.kubernetes.io/name: chopper-collector
     app.kubernetes.io/instance: {{ .Release.Name }}
     app.kubernetes.io/component: collector
-    {{- include "pulse-telemetry.labels" . | nindent 4 }}
+    {{- include "telemetry-chopper.labels" . | nindent 4 }}
     {{- with .Values.metrics.serviceMonitor.additionalLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: pulse-collector
+      app.kubernetes.io/name: chopper-collector
       app.kubernetes.io/instance: {{ .Release.Name }}
       app.kubernetes.io/component: collector
   namespaceSelector:

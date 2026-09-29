@@ -1,5 +1,5 @@
-# The full V1 Pulse stack: PostgreSQL, the Next.js control plane, and the
-# otelcol-pulse collector, wired together on the compose network.
+# The full V1 Telemetry Chopper stack: PostgreSQL, the Next.js control plane, and the
+# otelcol-chopper collector, wired together on the compose network.
 # From the repo root:
 #   Full stack:     docker compose -f deploy/docker/docker-compose.yaml up --build
 #   Postgres only:  docker compose -f deploy/docker/docker-compose.yaml up -d postgres
@@ -11,17 +11,17 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: pulse-postgres
+    container_name: chopper-postgres
     environment:
-      POSTGRES_USER: pulse
-      POSTGRES_PASSWORD: pulse
-      POSTGRES_DB: pulse_control
+      POSTGRES_USER: chopper
+      POSTGRES_PASSWORD: chopper
+      POSTGRES_DB: chopper_control
     ports:
       - "5432:5432"
     volumes:
-      - pulse-pgdata:/var/lib/postgresql/data
+      - chopper-pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pulse -d pulse_control"]
+      test: ["CMD-SHELL", "pg_isready -U chopper -d chopper_control"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -33,9 +33,9 @@ services:
     build:
       context: ../../control-plane
       target: builder
-    container_name: pulse-control-plane-migrate
+    container_name: chopper-control-plane-migrate
     environment:
-      DATABASE_URL: postgresql://pulse:pulse@postgres:5432/pulse_control?schema=public
+      DATABASE_URL: postgresql://chopper:chopper@postgres:5432/chopper_control?schema=public
     command: sh -c "npx prisma migrate deploy && npx prisma db seed"
     restart: "no"
     depends_on:
@@ -46,9 +46,9 @@ services:
     build:
       context: ../../control-plane
       target: runner
-    container_name: pulse-control-plane
+    container_name: chopper-control-plane
     environment:
-      DATABASE_URL: postgresql://pulse:pulse@postgres:5432/pulse_control?schema=public
+      DATABASE_URL: postgresql://chopper:chopper@postgres:5432/chopper_control?schema=public
     ports:
       - "3000:3000" # dashboard + policy/stats APIs
     depends_on:
@@ -69,11 +69,11 @@ services:
       retries: 10
       start_period: 15s
 
-  otelcol-pulse:
+  otelcol-chopper:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.collector
-    container_name: otelcol-pulse
+    container_name: otelcol-chopper
     ports:
       - "4317:4317" # OTLP gRPC
       - "4318:4318" # OTLP HTTP
@@ -86,4 +86,4 @@ services:
         condition: service_healthy
 
 volumes:
-  pulse-pgdata:
+  chopper-pgdata:

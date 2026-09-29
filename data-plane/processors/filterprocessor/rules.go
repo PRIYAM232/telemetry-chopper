@@ -29,7 +29,7 @@ const redactedPatternPlaceholder = "[REDACTED_PATTERN]"
 // its TargetDestination. Resource-level, not record-level, because the
 // collector's native routing connector evaluates its route table against the
 // resource — that is what lets it fork whole resource groups without
-// splitting batches. The pipeline contract is: pulse_filter writes this key,
+// splitting batches. The pipeline contract is: chopper_filter writes this key,
 // the routing connector's table reads it, and the two must agree on the name
 // (see data-plane/config/otelcol-dev.yaml).
 //
@@ -37,7 +37,7 @@ const redactedPatternPlaceholder = "[REDACTED_PATTERN]"
 // same blast radius as REDACT on a resource attribute. When several ROUTE
 // rules match records under one resource, the last match wins (PutStr
 // upserts).
-const attrRoutingDestination = "pulse.routing.destination"
+const attrRoutingDestination = "chopper.routing.destination"
 
 // compiledRule is a PolicyRule in its evaluation-ready form: the wire rule
 // plus derived state that must never be computed on the consume hot path.
@@ -79,7 +79,7 @@ func compileRules(rules []PolicyRule, logger *zap.Logger) []compiledRule {
 			if rules[i].ThrottleRate != nil && *rules[i].ThrottleRate > 0 {
 				compiled[i].limiters = newLimiterGroup(*rules[i].ThrottleRate)
 			} else {
-				logger.Warn("pulse_filter: THROTTLE rule has no positive rate, rule will not be enforced",
+				logger.Warn("chopper_filter: THROTTLE rule has no positive rate, rule will not be enforced",
 					zap.String("rule", rules[i].Name),
 				)
 			}
@@ -90,7 +90,7 @@ func compileRules(rules []PolicyRule, logger *zap.Logger) []compiledRule {
 		}
 		re, err := regexp.Compile(rules[i].ConditionValue)
 		if err != nil {
-			logger.Warn("pulse_filter: REGEX_MATCH pattern does not compile, rule will not be enforced",
+			logger.Warn("chopper_filter: REGEX_MATCH pattern does not compile, rule will not be enforced",
 				zap.String("rule", rules[i].Name),
 				zap.String("pattern", rules[i].ConditionValue),
 				zap.Error(err),

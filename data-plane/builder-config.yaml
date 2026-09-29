@@ -7,8 +7,8 @@
 # version below must come from the same release line (here: v0.156.0).
 
 dist:
-  name: otelcol-pulse
-  description: Pulse — OpenTelemetry observability firewall & cost-optimization pipeline (custom collector distribution)
+  name: otelcol-chopper
+  description: Telemetry Chopper — OpenTelemetry observability firewall & cost-optimization pipeline (custom collector distribution)
   output_path: ./dist
   version: 0.1.0
 
@@ -18,7 +18,7 @@ receivers:
 processors:
   # Our custom in-process filter engine. The version here is a placeholder —
   # the `replaces` directive below redirects resolution to the local path.
-  - gomod: github.com/PRIYAM232/pulse-telemetry/data-plane/processors/filterprocessor v0.1.0
+  - gomod: github.com/PRIYAM232/telemetry-chopper/data-plane/processors/filterprocessor v0.1.0
 
 exporters:
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.156.0
@@ -32,20 +32,20 @@ exporters:
 connectors:
   # Native OTel routing connector (the successor to the removed `routing`
   # processor): forks data between pipelines based on OTTL conditions over
-  # resource attributes — in our case the pulse.routing.destination attribute
-  # stamped by pulse_filter ROUTE rules.
+  # resource attributes — in our case the chopper.routing.destination attribute
+  # stamped by chopper_filter ROUTE rules.
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/connector/routingconnector v0.156.0
 
 # Replace directives are copied verbatim into the go.mod that ocb generates
 # inside `output_path` (./dist). Relative paths in a go.mod replace are
 # resolved relative to that go.mod — hence `../`, not `./`.
 replaces:
-  - github.com/PRIYAM232/pulse-telemetry/data-plane/processors/filterprocessor => ../processors/filterprocessor
+  - github.com/PRIYAM232/telemetry-chopper/data-plane/processors/filterprocessor => ../processors/filterprocessor
   # Security floor for gRPC. The v0.156.0 modules resolve
   # google.golang.org/grpc v1.82.0, which exposes every gRPC-Go server (here,
   # the OTLP receiver on :4317) to two unauthenticated remote DoS advisories:
   # GHSA-vp52-pcj8-j9qc (OOM via fragmented HTTP/2 DATA frames, fixed in
   # 1.83.1) and GHSA-hrxh-6v49-42gf (HTTP/2 Rapid Reset mitigation bypass,
   # fixed in 1.82.1). Remove once the collector release line requires
-  # >= 1.83.1 itself; `go version -m dist/otelcol-pulse` shows what shipped.
+  # >= 1.83.1 itself; `go version -m dist/otelcol-chopper` shows what shipped.
   - google.golang.org/grpc => google.golang.org/grpc v1.83.2

@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Pulse Control Plane",
+  title: "Telemetry Chopper Control Plane",
   description:
     "Manage telemetry policy rules and watch real-time observability cost savings.",
 };

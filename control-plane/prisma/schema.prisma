@@ -1,6 +1,6 @@
-// Pulse control plane — policy schema.
+// Telemetry Chopper control plane — policy schema.
 //
-// CollectorFleet is the unit of management: a group of otelcol-pulse
+// CollectorFleet is the unit of management: a group of otelcol-chopper
 // collectors sharing one API key and one ruleset. PolicyRule rows are the
 // dynamic rules the data plane polls for (see /api/v1/policies/[fleetId]).
 
@@ -22,7 +22,7 @@ enum PolicyAction {
   SAMPLE
   REDACT
   // ROUTE never drops: the data plane stamps the matched telemetry's resource
-  // with pulse.routing.destination = targetDestination, and the collector's
+  // with chopper.routing.destination = targetDestination, and the collector's
   // native routing connector forks it to the exporter registered for that
   // destination.
   ROUTE

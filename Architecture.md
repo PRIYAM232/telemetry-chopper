@@ -1,11 +1,11 @@
 My local `ARCHITECTURE.md` or system documentation file.
-Here is the complete, production-ready tech stack description for **Pulse**. 
+Here is the complete, production-ready tech stack description for **Telemetry Chopper**. 
 
 ---
 
-# Pulse Architecture & Tech Stack
+# Telemetry Chopper Architecture & Tech Stack
 
-Pulse utilizes a **"Split-Brain" Architecture** to maximize both real-time data-processing efficiency and developer iteration speed. The system is strictly partitioned into a compiled, ultra-low-latency **Data Plane** and a web-accessible, schema-driven **Control Plane**.
+Telemetry Chopper utilizes a **"Split-Brain" Architecture** to maximize both real-time data-processing efficiency and developer iteration speed. The system is strictly partitioned into a compiled, ultra-low-latency **Data Plane** and a web-accessible, schema-driven **Control Plane**.
 
 ---
 
@@ -65,7 +65,7 @@ The Control Plane is the operational brain. It handles user authentication, expo
              │ (High-throughput OTLP Streams)
              ▼
 ┌────────────────────────────────────────────────────────┐
-│  DATA PLANE: Pulse Custom OTel Collector Binary (Go)   │
+│  DATA PLANE: Telemetry Chopper OTel Collector (Go)     │
 │  - Reads in-memory JSON rules                          │
 │  - Drops, redacts, or mutates data in-memory (<1ms)     │
 └──────────────────────────▲─────────────────────────────┘

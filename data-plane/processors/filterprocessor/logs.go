@@ -23,7 +23,7 @@ const (
 // logsProcessor filters log records against the dynamic ruleset held by the
 // shared ruleEngine — the SAME engine instance the traces processor uses, so
 // one collector polls the policy endpoint once and sends one heartbeat no
-// matter how many signal pipelines reference pulse_filter.
+// matter how many signal pipelines reference chopper_filter.
 //
 // The hot-path rules from the traces processor apply unchanged: no heap
 // allocation per batch in the common path, snapshotRules holds the read lock
@@ -58,7 +58,7 @@ func (p *logsProcessor) Start(_ context.Context, _ component.Host) error {
 
 func (p *logsProcessor) Shutdown(_ context.Context) error {
 	p.engine.stop()
-	p.logger.Info("pulse_filter logs processor stopped")
+	p.logger.Info("chopper_filter logs processor stopped")
 	return nil
 }
 
@@ -88,7 +88,7 @@ func (p *logsProcessor) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 	// every batch, concurrently across receivers.
 	p.engine.observeLogs(ctx, int64(recordsIn), int64(recordsIn-recordsOut))
 
-	p.logger.Debug("pulse_filter processed log batch",
+	p.logger.Debug("chopper_filter processed log batch",
 		zap.Int("records_in", recordsIn),
 		zap.Int("records_dropped", recordsIn-recordsOut),
 		zap.Int("records_out", recordsOut),
@@ -133,7 +133,7 @@ func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecor
 
 		switch rule.ActionType {
 		case ActionDrop:
-			p.logger.Debug("pulse_filter dropping log record",
+			p.logger.Debug("chopper_filter dropping log record",
 				zap.String("rule", rule.Name),
 				zap.String("severity", lr.SeverityText()),
 			)
@@ -149,7 +149,7 @@ func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecor
 			// later ROUTE matches overwrite it, and later rules may still
 			// drop the record.
 			resAttrs.PutStr(attrRoutingDestination, rule.TargetDestination)
-			p.logger.Debug("pulse_filter tagged log resource for routing",
+			p.logger.Debug("chopper_filter tagged log resource for routing",
 				zap.String("rule", rule.Name),
 				zap.String("destination", rule.TargetDestination),
 			)
@@ -159,7 +159,7 @@ func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecor
 			// tenant's exploding debug logs clamp to throttleRate/sec while
 			// every other group's bucket stays untouched.
 			if !rule.limiters.allow(throttleKey(rule, lr.Attributes(), resAttrs)) {
-				p.logger.Debug("pulse_filter dropping log record (throttle rate exceeded)",
+				p.logger.Debug("chopper_filter dropping log record (throttle rate exceeded)",
 					zap.String("rule", rule.Name),
 					zap.String("severity", lr.SeverityText()),
 				)
@@ -249,7 +249,7 @@ func (p *logsProcessor) redactLogField(rule *compiledRule, lr plog.LogRecord, re
 		}
 	}
 
-	p.logger.Debug("pulse_filter redacted log field",
+	p.logger.Debug("chopper_filter redacted log field",
 		zap.String("rule", rule.Name),
 		zap.String("field", rule.ConditionField),
 	)

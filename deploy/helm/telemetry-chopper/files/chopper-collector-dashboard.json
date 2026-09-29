@@ -1,7 +1,7 @@
 {
   "__inputs": [],
   "annotations": { "list": [] },
-  "description": "Self-monitoring for the Pulse observability proxy: otelcol-pulse process health, synced ruleset size, and per-signal throughput/drops from the pulse_filter engine. Metric names assume the chart's telemetry reader config (classic collector names, no _total/unit suffixes).",
+  "description": "Self-monitoring for the Telemetry Chopper observability proxy: otelcol-chopper process health, synced ruleset size, and per-signal throughput/drops from the chopper_filter engine. Metric names assume the chart's telemetry reader config (classic collector names, no _total/unit suffixes).",
   "editable": true,
   "graphTooltip": 1,
   "id": null,
@@ -77,12 +77,12 @@
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
       "id": 101,
       "panels": [],
-      "title": "Pulse engine",
+      "title": "Telemetry Chopper engine",
       "type": "row"
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Rules in the currently synced pulse_filter ruleset. 0 with traffic flowing means the collector cannot reach the control plane (or the fleet has no enabled rules).",
+      "description": "Rules in the currently synced chopper_filter ruleset. 0 with traffic flowing means the collector cannot reach the control plane (or the fleet has no enabled rules).",
       "fieldConfig": {
         "defaults": {
           "unit": "none",
@@ -107,7 +107,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "max(otelcol_pulse_filter_rules{pod=~\"$pod\"})",
+          "expr": "max(otelcol_chopper_filter_rules{pod=~\"$pod\"})",
           "legendFormat": "rules",
           "refId": "A"
         }
@@ -117,7 +117,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Share of incoming telemetry (spans + log records + metrics) removed by pulse_filter rules — the proxy's cost-savings knob, and the number to watch after a rule change.",
+      "description": "Share of incoming telemetry (spans + log records + metrics) removed by chopper_filter rules — the proxy's cost-savings knob, and the number to watch after a rule change.",
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
@@ -145,7 +145,7 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "100 * (sum(rate(otelcol_pulse_filter_spans_dropped{pod=~\"$pod\"}[$__rate_interval])) + sum(rate(otelcol_pulse_filter_logs_dropped{pod=~\"$pod\"}[$__rate_interval])) + sum(rate(otelcol_pulse_filter_metrics_dropped{pod=~\"$pod\"}[$__rate_interval]))) / (sum(rate(otelcol_pulse_filter_spans_received{pod=~\"$pod\"}[$__rate_interval])) + sum(rate(otelcol_pulse_filter_logs_received{pod=~\"$pod\"}[$__rate_interval])) + sum(rate(otelcol_pulse_filter_metrics_received{pod=~\"$pod\"}[$__rate_interval])))",
+          "expr": "100 * (sum(rate(otelcol_chopper_filter_spans_dropped{pod=~\"$pod\"}[$__rate_interval])) + sum(rate(otelcol_chopper_filter_logs_dropped{pod=~\"$pod\"}[$__rate_interval])) + sum(rate(otelcol_chopper_filter_metrics_dropped{pod=~\"$pod\"}[$__rate_interval]))) / (sum(rate(otelcol_chopper_filter_spans_received{pod=~\"$pod\"}[$__rate_interval])) + sum(rate(otelcol_chopper_filter_logs_received{pod=~\"$pod\"}[$__rate_interval])) + sum(rate(otelcol_chopper_filter_metrics_received{pod=~\"$pod\"}[$__rate_interval])))",
           "legendFormat": "dropped",
           "refId": "A"
         }
@@ -155,7 +155,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Telemetry entering pulse_filter across all collector pods, per signal.",
+      "description": "Telemetry entering chopper_filter across all collector pods, per signal.",
       "fieldConfig": {
         "defaults": {
           "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" },
@@ -173,19 +173,19 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum(rate(otelcol_pulse_filter_spans_received{pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_chopper_filter_spans_received{pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "spans",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum(rate(otelcol_pulse_filter_logs_received{pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_chopper_filter_logs_received{pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "log records",
           "refId": "B"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum(rate(otelcol_pulse_filter_metrics_received{pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_chopper_filter_metrics_received{pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "metrics",
           "refId": "C"
         }
@@ -195,7 +195,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Telemetry removed by pulse_filter rules (DROP, SAMPLE, THROTTLE), per signal.",
+      "description": "Telemetry removed by chopper_filter rules (DROP, SAMPLE, THROTTLE), per signal.",
       "fieldConfig": {
         "defaults": {
           "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" },
@@ -213,19 +213,19 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum(rate(otelcol_pulse_filter_spans_dropped{pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_chopper_filter_spans_dropped{pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "spans",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum(rate(otelcol_pulse_filter_logs_dropped{pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_chopper_filter_logs_dropped{pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "log records",
           "refId": "B"
         },
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "sum(rate(otelcol_pulse_filter_metrics_dropped{pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum(rate(otelcol_chopper_filter_metrics_dropped{pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "metrics",
           "refId": "C"
         }
@@ -235,7 +235,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Telemetry the OTLP receiver refused (backpressure / bad payloads). Non-zero here means producers are losing data BEFORE pulse_filter ever sees it.",
+      "description": "Telemetry the OTLP receiver refused (backpressure / bad payloads). Non-zero here means producers are losing data BEFORE chopper_filter ever sees it.",
       "fieldConfig": {
         "defaults": {
           "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" },
@@ -276,7 +276,7 @@
   ],
   "refresh": "30s",
   "schemaVersion": 39,
-  "tags": ["pulse", "opentelemetry", "self-monitoring"],
+  "tags": ["chopper", "opentelemetry", "self-monitoring"],
   "templating": {
     "list": [
       {
@@ -304,7 +304,7 @@
   },
   "time": { "from": "now-1h", "to": "now" },
   "timezone": "browser",
-  "title": "Pulse — Collector Self-Monitoring",
-  "uid": "pulse-collector-health",
+  "title": "Telemetry Chopper — Collector Self-Monitoring",
+  "uid": "chopper-collector-health",
   "version": 1
 }

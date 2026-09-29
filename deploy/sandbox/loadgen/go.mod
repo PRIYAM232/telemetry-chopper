@@ -1,4 +1,4 @@
-module github.com/PRIYAM232/pulse-telemetry/deploy/sandbox/loadgen
+module github.com/PRIYAM232/telemetry-chopper/deploy/sandbox/loadgen
 
 go 1.25.0
 

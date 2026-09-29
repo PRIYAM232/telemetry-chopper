@@ -1,4 +1,4 @@
-# Pulse — top-level developer entrypoints.
+# Telemetry Chopper — top-level developer entrypoints.
 # The ocb version MUST match the collector module versions in
 # data-plane/builder-config.yaml (both currently v0.156.0).
 
@@ -17,11 +17,11 @@ ocb: ## Install the OpenTelemetry Collector Builder (pinned)
 tidy: ## Tidy the custom processor module
 	cd data-plane/processors/filterprocessor && go mod tidy
 
-build: ## Compile the otelcol-pulse binary into data-plane/dist/
+build: ## Compile the otelcol-chopper binary into data-plane/dist/
 	cd data-plane && $(OCB) --config builder-config.yaml
 
 run: ## Run the collector with the local dev pipeline
-	./data-plane/dist/otelcol-pulse --config data-plane/config/otelcol-dev.yaml
+	./data-plane/dist/otelcol-chopper --config data-plane/config/otelcol-dev.yaml
 
 clean: ## Remove ocb build output
 	rm -rf data-plane/dist

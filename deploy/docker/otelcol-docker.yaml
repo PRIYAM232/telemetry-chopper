@@ -18,32 +18,32 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
-  pulse_filter:
+  chopper_filter:
     log_span_details: false
     sync_endpoint: http://control-plane:3000/api/v1/policies/f1ee7000-0000-4000-8000-000000000001
     sync_interval: 10s
     stats_endpoint: http://control-plane:3000/api/v1/telemetry/f1ee7000-0000-4000-8000-000000000001/stats
     stats_interval: 10s
-    fleet_key: pulse_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
+    fleet_key: chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
 
 connectors:
   routing/traces:
     default_pipelines: [traces/hot]
     table:
       - context: resource
-        condition: attributes["pulse.routing.destination"] == "cold-storage"
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
         pipelines: [traces/cold]
   routing/logs:
     default_pipelines: [logs/hot]
     table:
       - context: resource
-        condition: attributes["pulse.routing.destination"] == "cold-storage"
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
         pipelines: [logs/cold]
   routing/metrics:
     default_pipelines: [metrics/hot]
     table:
       - context: resource
-        condition: attributes["pulse.routing.destination"] == "cold-storage"
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
         pipelines: [metrics/cold]
 
 exporters:
@@ -57,20 +57,20 @@ exporters:
 service:
   telemetry:
     logs:
-      # pulse_filter emits its batch observations at debug level.
+      # chopper_filter emits its batch observations at debug level.
       level: debug
   pipelines:
     traces/in:
       receivers: [otlp]
-      processors: [pulse_filter]
+      processors: [chopper_filter]
       exporters: [routing/traces]
     logs/in:
       receivers: [otlp]
-      processors: [pulse_filter]
+      processors: [chopper_filter]
       exporters: [routing/logs]
     metrics/in:
       receivers: [otlp]
-      processors: [pulse_filter]
+      processors: [chopper_filter]
       exporters: [routing/metrics]
 
     traces/hot:

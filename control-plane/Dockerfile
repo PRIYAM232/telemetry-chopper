@@ -1,6 +1,6 @@
-# Multi-stage build for the Pulse control plane (Next.js + Prisma).
+# Multi-stage build for the Telemetry Chopper control plane (Next.js + Prisma).
 # Build context is this directory:
-#   docker build -t pulse/control-plane:dev control-plane/
+#   docker build -t telemetry-chopper/control-plane:dev control-plane/
 #
 # Two consumable stages:
 #   builder — full node_modules + Prisma CLI + schema/migrations/seed. The

@@ -1,6 +1,6 @@
 // POST /api/v1/telemetry/:fleetId/stats
 //
-// Heartbeat sink for otelcol-pulse data planes. Every stats interval each
+// Heartbeat sink for otelcol-chopper data planes. Every stats interval each
 // collector reports how many spans and log records it received and dropped
 // since its last successful report; one FleetMetric row is inserted per
 // report. Auth is the same fleet-scoped bearer token as the policy pull

@@ -1,9 +1,9 @@
-# Pulse CI — validation for pull requests and pushes to main.
+# Telemetry Chopper CI — validation for pull requests and pushes to main.
 #
 # Six independent jobs, one per surface:
 #   go              — vet, gofmt and race-enabled tests for every Go module:
-#                     the pulse_filter engine and the sandbox load generator
-#   collector-build — assembles the otelcol-pulse distro with ocb, proving
+#                     the chopper_filter engine and the sandbox load generator
+#   collector-build — assembles the otelcol-chopper distro with ocb, proving
 #                     builder-config.yaml and the processor still compose
 #   control-plane   — ESLint + Prisma schema validation
 #   helm            — chart lint + a full render with the Phase 10
@@ -78,7 +78,7 @@ jobs:
           cache-dependency-path: data-plane/processors/filterprocessor/go.sum
       - name: Install OpenTelemetry Collector Builder
         run: go install go.opentelemetry.io/collector/cmd/builder@${{ env.OCB_VERSION }}
-      - name: Assemble otelcol-pulse
+      - name: Assemble otelcol-chopper
         working-directory: data-plane
         run: builder --config builder-config.yaml
 
@@ -115,10 +115,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
       - name: helm lint
-        run: helm lint deploy/helm/pulse-telemetry
+        run: helm lint deploy/helm/telemetry-chopper
       - name: Render with self-monitoring enabled
         run: >
-          helm template pulse deploy/helm/pulse-telemetry
+          helm template chopper deploy/helm/telemetry-chopper
           --set metrics.serviceMonitor.enabled=true
           --set metrics.dashboard.enabled=true
           > /dev/null
@@ -140,7 +140,7 @@ jobs:
             context: control-plane
             dockerfile: control-plane/Dockerfile
             target: builder
-          - image: otelcol-pulse
+          - image: otelcol-chopper
             # The collector Dockerfile copies data-plane/ from the repo root.
             context: .
             dockerfile: deploy/docker/Dockerfile.collector
@@ -160,13 +160,13 @@ jobs:
           target: ${{ matrix.target }}
           push: false
           load: true
-          tags: pulse-ci/${{ matrix.image }}:${{ github.sha }}
+          tags: chopper-ci/${{ matrix.image }}:${{ github.sha }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,scope=${{ matrix.image }},mode=max
 
       # Report-only pass over HIGH and CRITICAL. The gate below blocks only on
       # CRITICAL, which let two HIGH remote-DoS gRPC advisories ship in
-      # otelcol-pulse unnoticed (fixed in #4). Findings land in the job
+      # otelcol-chopper unnoticed (fixed in #4). Findings land in the job
       # summary plus a warning annotation on the PR, and never fail the
       # build. Runs before the gate so the report exists even when the gate
       # fails. Same SHA pin as the gate (see below).
@@ -174,7 +174,7 @@ jobs:
         continue-on-error: true
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: pulse-ci/${{ matrix.image }}:${{ github.sha }}
+          image-ref: chopper-ci/${{ matrix.image }}:${{ github.sha }}
           format: json
           output: trivy-report.json
           scanners: vuln
@@ -211,7 +211,7 @@ jobs:
       - name: Fail on CRITICAL CVEs
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: pulse-ci/${{ matrix.image }}:${{ github.sha }}
+          image-ref: chopper-ci/${{ matrix.image }}:${{ github.sha }}
           format: table
           # CVE gate only. Trivy's secret scanner would flag the deterministic
           # dev fleet key baked into the collector's default config.

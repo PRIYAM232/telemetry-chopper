@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/collector/config/configopaque"
 )
 
-// Config defines the user-facing configuration of the Pulse filter processor.
+// Config defines the user-facing configuration of the Telemetry Chopper filter processor.
 //
 // Phase 2 adds the control-plane sync settings. The rule document itself is
 // NOT configured here — it is fetched at runtime from the control plane and
@@ -113,7 +113,7 @@ const (
 	ActionSample = "SAMPLE"
 	ActionRedact = "REDACT"
 	// ActionRoute never drops: a match stamps the record's RESOURCE with
-	// pulse.routing.destination = TargetDestination so the collector's native
+	// chopper.routing.destination = TargetDestination so the collector's native
 	// routing connector can fork the batch downstream. Resource-level on
 	// purpose — the routing connector evaluates at resource granularity to
 	// keep batches intact.
@@ -159,7 +159,7 @@ type PolicyRule struct {
 	// SampleRate is only set for SAMPLE rules (fraction to keep, in [0,1]).
 	SampleRate *float64 `json:"sampleRate"`
 	// TargetDestination is only set for ROUTE rules: the destination stamped
-	// into pulse.routing.destination for the routing connector to key on.
+	// into chopper.routing.destination for the routing connector to key on.
 	// Prisma serializes NULL for other actions; JSON null leaves the zero
 	// string, so "" reliably means "no destination" (which disables the rule).
 	TargetDestination string `json:"targetDestination"`
