@@ -6,8 +6,13 @@
 // old always-visible "(SAMPLE only)" field) means the browser's `required`
 // validation can be honest: when the field is visible, it is mandatory.
 //
-// Everything stays an uncontrolled <form> feeding the createRule Server
-// Action; the only client state is which action is selected.
+// Everything else stays an uncontrolled <form> feeding the createRule Server
+// Action. The Action and Signal selects are controlled on purpose: after a
+// successful save CreateRuleForm clears only the typed inputs, so the rule's
+// "shape" (action, signal, and the operator in CreateRuleForm) carries over
+// to the next rule. Filing several rules for one signal is the common case, and
+// a signal silently reverting to TRACES produced rules against the wrong
+// signal (issue #16).
 
 import { useState } from "react";
 import { PolicyAction, TargetSignal } from "@/generated/prisma/enums";
@@ -21,6 +26,7 @@ const KNOWN_DESTINATIONS = ["cold-storage", "premium-analytics"];
 
 export function ActionFields() {
   const [action, setAction] = useState<string>(PolicyAction.DROP);
+  const [signal, setSignal] = useState<string>(TargetSignal.TRACES);
 
   return (
     <>
@@ -38,7 +44,12 @@ export function ActionFields() {
           </select>
         </Field>
         <Field label="Signal">
-          <select name="targetSignal" defaultValue={TargetSignal.TRACES} className={inputClass}>
+          <select
+            name="targetSignal"
+            value={signal}
+            onChange={(e) => setSignal(e.target.value)}
+            className={inputClass}
+          >
             {Object.values(TargetSignal).map((s) => (
               <option key={s} value={s}>{s}</option>
             ))}
