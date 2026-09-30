@@ -379,15 +379,18 @@ function RuleCard({ rule }: { rule: PolicyRuleModel }) {
     rule.conditionOp === ConditionOp.REGEX_MATCH ? re2SyntaxError(rule.conditionValue) : null;
 
   return (
-    <div
-      className={`rounded-xl border bg-white p-4 transition-opacity dark:bg-zinc-950 ${
-        rule.isActive
-          ? "border-zinc-200 dark:border-zinc-800"
-          : "border-zinc-200 opacity-60 dark:border-zinc-800"
-      }`}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
+    // Layout is identical in both states (issue #17): the header row never
+    // wraps, so Pause/Resume and Delete stay pinned top-right while the rule
+    // is paused and resumed; badges wrap inside the left column instead, and
+    // state chips live on the metadata row. A paused rule dims its content,
+    // not its actions — Resume must not look disabled.
+    <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="flex items-start justify-between gap-3">
+        <div
+          className={`flex min-w-0 flex-1 flex-wrap items-center gap-2 transition-opacity ${
+            rule.isActive ? "" : "opacity-60"
+          }`}
+        >
           <span
             className={`shrink-0 rounded-md border px-2 py-0.5 text-xs font-semibold ${
               actionBadgeStyles[rule.actionType] ?? actionBadgeStyles[PolicyAction.REDACT]
@@ -423,35 +426,18 @@ function RuleCard({ rule }: { rule: PolicyRuleModel }) {
               {rule.throttleGroupBy !== null ? `per ${rule.throttleGroupBy}` : "global"}
             </span>
           )}
-          <h3 className="truncate font-medium text-zinc-900 dark:text-zinc-100">{rule.name}</h3>
-          {!rule.isActive && (
-            <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
-              paused
-            </span>
-          )}
-          {rule.isActive && !ruleEnforced(rule) && (
-            <span
-              className="shrink-0 rounded-md bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-400"
-              title="The data plane doesn't execute this rule type yet; it is stored and synced only."
-            >
-              not enforced yet
-            </span>
-          )}
-          {regexError !== null && (
-            <span
-              className="shrink-0 rounded-md bg-rose-50 px-2 py-0.5 text-xs text-rose-700 dark:bg-rose-950 dark:text-rose-400"
-              title={`Collectors skip this rule: the pattern isn't valid RE2. ${regexError}`}
-            >
-              invalid regex · not enforced
-            </span>
-          )}
+          <h3 className="max-w-full min-w-0 truncate font-medium text-zinc-900 dark:text-zinc-100">
+            {rule.name}
+          </h3>
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
           <form action={toggleRuleActive}>
             <input type="hidden" name="ruleId" value={rule.id} />
-            <SubmitButton className="rounded-lg border border-zinc-300 px-3 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900">
-              {rule.isActive ? "Pause" : "Activate"}
+            {/* Fixed width: "Resume" is wider than "Pause", and the toggle
+                must not shift under the pointer between clicks. */}
+            <SubmitButton className="min-w-[4.5rem] rounded-lg border border-zinc-300 px-3 py-1.5 text-center text-xs font-medium text-zinc-700 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-900">
+              {rule.isActive ? "Pause" : "Resume"}
             </SubmitButton>
           </form>
           <form action={deleteRule}>
@@ -464,13 +450,38 @@ function RuleCard({ rule }: { rule: PolicyRuleModel }) {
       </div>
 
       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-        <code className="rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-800 dark:bg-zinc-900 dark:text-zinc-200">
+        <code
+          className={`rounded bg-zinc-100 px-2 py-1 font-mono text-xs text-zinc-800 transition-opacity dark:bg-zinc-900 dark:text-zinc-200 ${
+            rule.isActive ? "" : "opacity-60"
+          }`}
+        >
           {rule.conditionField} {rule.conditionOp}
           {rule.conditionOp !== ConditionOp.EXISTS ? ` "${rule.conditionValue}"` : ""}
         </code>
-        <span className="text-xs text-zinc-400 dark:text-zinc-500">
+        <span className={`text-xs text-zinc-400 dark:text-zinc-500 ${rule.isActive ? "" : "opacity-60"}`}>
           {rule.targetSignal.toLowerCase()} · added {dateFmt.format(rule.createdAt)}
         </span>
+        {!rule.isActive && (
+          <span className="shrink-0 rounded-md bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400">
+            paused
+          </span>
+        )}
+        {rule.isActive && !ruleEnforced(rule) && (
+          <span
+            className="shrink-0 rounded-md bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+            title="The data plane doesn't execute this rule type yet; it is stored and synced only."
+          >
+            not enforced yet
+          </span>
+        )}
+        {regexError !== null && (
+          <span
+            className="shrink-0 rounded-md bg-rose-50 px-2 py-0.5 text-xs text-rose-700 dark:bg-rose-950 dark:text-rose-400"
+            title={`Collectors skip this rule: the pattern isn't valid RE2. ${regexError}`}
+          >
+            invalid regex · not enforced
+          </span>
+        )}
       </div>
     </div>
   );
