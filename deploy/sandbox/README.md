@@ -350,6 +350,6 @@ docker compose down -v
 |---|---|
 | `Bind for 0.0.0.0:4317 failed: port is already allocated` | Another stack owns the port. See step 0. |
 | Dashboard says **No heartbeat yet** | The proxy isn't running: `docker logs chopper-sbx-otelcol`. |
-| Rule saved but nothing changes | Check the `ruleset updated` line. `rules_ignored > 0` means a rule can't be enforced (e.g. REDACT on METRICS, or SAMPLE on LOGS). A regex Go's RE2 rejects (lookarounds, backreferences) logs `REGEX_MATCH pattern does not compile` and fails open. |
+| Rule saved but nothing changes | Check the `ruleset updated` line. `rules_ignored > 0` means a rule can't be enforced (e.g. REDACT on METRICS, or SAMPLE on LOGS). The dashboard rejects a regex Go's RE2 can't compile (lookarounds, backreferences); a rule stored some other way shows an **invalid regex · not enforced** badge, and the collector logs `REGEX_MATCH pattern does not compile` and fails open. |
 | ROUTE rule enforced but the data still reaches the backend | The destination must exactly match a value in the collector's routing tables. This sandbox only wires `cold-storage` (the `routing/*` connectors in `otelcol-sandbox.yaml`); any other value falls through to the default hot pipeline. |
 | `sandbox_backend_*` graphs empty | The mock backend only exposes a series after its first log arrives. Check `docker logs chopper-sbx-loadgen` for `export_errors`. |

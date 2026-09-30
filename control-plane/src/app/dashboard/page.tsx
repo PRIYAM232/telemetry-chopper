@@ -9,10 +9,10 @@ import type { Metadata } from "next";
 import { PolicyAction, TargetSignal, ConditionOp } from "@/generated/prisma/enums";
 import type { PolicyRuleModel } from "@/generated/prisma/models";
 import { prisma } from "@/lib/prisma";
-import { ActionFields } from "./action-fields";
-import { createRule, deleteRule, toggleRuleActive } from "./actions";
+import { re2SyntaxError } from "@/lib/re2";
+import { deleteRule, toggleRuleActive } from "./actions";
 import { AutoRefresh } from "./auto-refresh";
-import { Field, inputClass } from "./form-ui";
+import { CreateRuleForm } from "./create-rule-form";
 import { SubmitButton } from "./pending";
 
 // This page reads live operational data on every request; never prerender it.
@@ -202,46 +202,7 @@ export default async function DashboardPage() {
           {/* Create form */}
           <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50/50 p-5 dark:border-zinc-700 dark:bg-zinc-900/40">
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">New rule</h3>
-            <form action={createRule} className="mt-3 flex flex-col gap-3">
-              <input type="hidden" name="fleetId" value={fleet.id} />
-              <Field label="Name">
-                <input
-                  name="name"
-                  required
-                  placeholder="drop-staging-noise"
-                  className={inputClass}
-                />
-              </Field>
-              {/* Action + signal selects and the action-specific inputs
-                  (sample rate, route destination) — a client island so the
-                  extra input only appears for the action that needs it. */}
-              <ActionFields />
-              <Field label="Condition">
-                <div className="flex flex-col gap-2">
-                  <input
-                    name="conditionField"
-                    required
-                    placeholder="http.status_code"
-                    className={inputClass}
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <select name="conditionOp" defaultValue={ConditionOp.EQUALS} className={inputClass}>
-                      {Object.values(ConditionOp).map((op) => (
-                        <option key={op} value={op}>{op}</option>
-                      ))}
-                    </select>
-                    <input
-                      name="conditionValue"
-                      placeholder="404 · regex for REGEX_MATCH · blank for EXISTS"
-                      className={inputClass}
-                    />
-                  </div>
-                </div>
-              </Field>
-              <SubmitButton className="mt-1 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-300">
-                Create rule
-              </SubmitButton>
-            </form>
+            <CreateRuleForm fleetId={fleet.id} />
           </div>
 
           {/* Rule grid */}
@@ -335,6 +296,12 @@ function ruleEnforced(rule: PolicyRuleModel): boolean {
 }
 
 function RuleCard({ rule }: { rule: PolicyRuleModel }) {
+  // createRule rejects these now, but rules saved before that check (or
+  // written straight to the database) can still hold a pattern the
+  // collector's RE2 won't compile. The collector skips them, so say so.
+  const regexError =
+    rule.conditionOp === ConditionOp.REGEX_MATCH ? re2SyntaxError(rule.conditionValue) : null;
+
   return (
     <div
       className={`rounded-xl border bg-white p-4 transition-opacity dark:bg-zinc-950 ${
@@ -384,6 +351,14 @@ function RuleCard({ rule }: { rule: PolicyRuleModel }) {
               title="The data plane doesn't execute this rule type yet; it is stored and synced only."
             >
               not enforced yet
+            </span>
+          )}
+          {regexError !== null && (
+            <span
+              className="shrink-0 rounded-md bg-rose-50 px-2 py-0.5 text-xs text-rose-700 dark:bg-rose-950 dark:text-rose-400"
+              title={`Collectors skip this rule: the pattern isn't valid RE2. ${regexError}`}
+            >
+              invalid regex · not enforced
             </span>
           )}
         </div>
