@@ -196,6 +196,8 @@ The dollar figure comes from the bytes your rules dropped, measured by the colle
 
 If your contract has a committed monthly volume with an overage penalty, add it on the same page under **Volume commitment**: committed GB per month, the overage multiplier (for example 1.5 for 150%) and the day your billing cycle starts. The dashboard's **This billing period** section then tracks billable volume (what the collectors actually forwarded) against the commitment, shows when you crossed it or when you're on pace to, and splits savings into standard volume savings (dropped GB at your rate card) and overage penalty avoided (the extra premium on the GB your rules kept out of the overage tier).
 
+How these figures are measured and calculated, plus every feature added since launch, is documented in the [feature log](docs/features/README.md).
+
 > **Shipping to a real backend:** the packaged dev pipeline terminates in the `debug` exporter so you can see everything working. The distribution also ships the `otlp_grpc` and `otlp_http` exporters, so any OTLP endpoint (Jaeger, Tempo, Prometheus, Grafana Cloud, vendor OTLP intakes) is a config change in your collector's `hot`/`cold` pipelines — see [`deploy/sandbox/otelcol-sandbox.yaml`](deploy/sandbox/otelcol-sandbox.yaml). For archives, it also ships the `awss3`, `azure_blob` and `file` exporters — see [Archiving to cold storage](#archiving-to-cold-storage). For vendor-specific exporters, add them to [`data-plane/builder-config.yaml`](data-plane/builder-config.yaml) and rebuild with `make build`.
 >
 > **Live REDACT/THROTTLE demo:** [`deploy/sandbox/`](deploy/sandbox/README.md) runs the full stack against real Jaeger and Prometheus backends with a noisy, PII-laden synthetic workload.
