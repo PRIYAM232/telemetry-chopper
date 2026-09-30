@@ -36,10 +36,18 @@ const dateFmt = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
+// Sub-cent amounts keep two significant digits instead of a fixed number of
+// decimals.
+const subCentUSDFmt = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumSignificantDigits: 2,
+});
+
 function formatUSD(value: number): string {
-  // Dev fleets drop thousands of spans, not billions — keep sub-cent savings
-  // visible instead of rounding the whole banner to $0.00.
-  if (value > 0 && value < 0.01) return `$${value.toFixed(4)}`;
+  // Dev fleets drop kilobytes, not terabytes: priced per GB, their savings
+  // are fractions of a cent — $0.000022, not a misleading $0.0000.
+  if (value > 0 && value < 0.01) return subCentUSDFmt.format(value);
   return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
 }
 
