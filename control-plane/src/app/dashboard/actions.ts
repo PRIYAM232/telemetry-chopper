@@ -15,6 +15,7 @@
 import { revalidatePath } from "next/cache";
 import { ConditionOp, PolicyAction, TargetSignal } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { re2SyntaxError } from "@/lib/re2";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -31,7 +32,20 @@ function isEnumValue<T extends Record<string, string>>(
   return Object.values(enumObject).includes(value);
 }
 
-export async function createRule(formData: FormData): Promise<void> {
+// createRule's useActionState result. Validation failures are expected
+// operator input errors, so they come back as a value the form renders
+// instead of a throw, which production Next.js would replace with a generic
+// error page.
+export type CreateRuleState = { error: string | null };
+
+function fail(error: string): CreateRuleState {
+  return { error };
+}
+
+export async function createRule(
+  _prev: CreateRuleState,
+  formData: FormData,
+): Promise<CreateRuleState> {
   const fleetId = formString(formData, "fleetId");
   const name = formString(formData, "name");
   const actionType = formString(formData, "actionType");
@@ -41,25 +55,26 @@ export async function createRule(formData: FormData): Promise<void> {
   // EXISTS ignores the value; store the empty string by convention.
   const conditionValue = formString(formData, "conditionValue");
 
-  if (!UUID_RE.test(fleetId)) throw new Error("invalid fleet id");
-  if (!name) throw new Error("rule name is required");
-  if (!conditionField) throw new Error("condition field is required");
-  if (!isEnumValue(PolicyAction, actionType)) throw new Error("invalid action type");
-  if (!isEnumValue(TargetSignal, targetSignal)) throw new Error("invalid target signal");
-  if (!isEnumValue(ConditionOp, conditionOp)) throw new Error("invalid condition operator");
+  if (!UUID_RE.test(fleetId)) return fail("invalid fleet id");
+  if (!name) return fail("rule name is required");
+  if (!conditionField) return fail("condition field is required");
+  if (!isEnumValue(PolicyAction, actionType)) return fail("invalid action type");
+  if (!isEnumValue(TargetSignal, targetSignal)) return fail("invalid target signal");
+  if (!isEnumValue(ConditionOp, conditionOp)) return fail("invalid condition operator");
   if (conditionOp !== ConditionOp.EXISTS && !conditionValue) {
-    throw new Error(`condition value is required for ${conditionOp}`);
+    return fail(`condition value is required for ${conditionOp}`);
   }
 
-  // First-line syntax check so obviously broken patterns never ship. Not
-  // authoritative: the data plane compiles with Go's RE2, which rejects some
-  // JS-isms (backreferences, lookaround) — those rules sync but fail open,
-  // logged by the collector at publication time.
+  // The data plane compiles REGEX_MATCH patterns with Go's RE2, and a pattern
+  // that doesn't compile there is skipped (fail open): a REDACT rule would
+  // silently mask nothing. Check with the same grammar before saving, not
+  // with JS RegExp, which accepts lookaround and backreferences.
   if (conditionOp === ConditionOp.REGEX_MATCH) {
-    try {
-      new RegExp(conditionValue);
-    } catch {
-      throw new Error("condition value is not a valid regular expression");
+    const syntaxError = re2SyntaxError(conditionValue);
+    if (syntaxError) {
+      return fail(
+        `condition value is not a valid RE2 pattern (no lookaround or backreferences): ${syntaxError}`,
+      );
     }
   }
 
@@ -69,7 +84,7 @@ export async function createRule(formData: FormData): Promise<void> {
   if (actionType === PolicyAction.SAMPLE) {
     sampleRate = Number(formString(formData, "sampleRate"));
     if (!Number.isFinite(sampleRate) || sampleRate <= 0 || sampleRate > 1) {
-      throw new Error("sample rate must be a fraction in (0, 1], e.g. 0.1 for 10%");
+      return fail("sample rate must be a fraction in (0, 1], e.g. 0.1 for 10%");
     }
   }
 
@@ -82,7 +97,7 @@ export async function createRule(formData: FormData): Promise<void> {
   if (actionType === PolicyAction.ROUTE) {
     targetDestination = formString(formData, "targetDestination");
     if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/.test(targetDestination)) {
-      throw new Error(
+      return fail(
         "destination must be 1-128 chars of letters, digits, . _ / - (e.g. cold-storage)",
       );
     }
@@ -102,7 +117,7 @@ export async function createRule(formData: FormData): Promise<void> {
       throttleRate <= 0 ||
       throttleRate > 1_000_000
     ) {
-      throw new Error(
+      return fail(
         "throttle rate must be a whole number of events/sec in [1, 1000000]",
       );
     }
@@ -112,7 +127,7 @@ export async function createRule(formData: FormData): Promise<void> {
       // name a real attribute key (tenant_id, service.name) — free text just
       // manufactures buckets that never match anything.
       if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,127}$/.test(groupBy)) {
-        throw new Error(
+        return fail(
           "group-by must be an attribute key: 1-128 chars of letters, digits, . _ / - (e.g. tenant_id)",
         );
       }
@@ -137,6 +152,7 @@ export async function createRule(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/dashboard");
+  return { error: null };
 }
 
 export async function toggleRuleActive(formData: FormData): Promise<void> {
