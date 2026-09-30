@@ -12,7 +12,7 @@
     "@prisma/adapter-pg": "^7.10.0",
     "@prisma/client": "^7.10.0",
     "dotenv": "^17.4.2",
-    "next": "16.3.5",
+    "next": "16.3.6",
     "prisma": "^7.10.0",
     "re2js": "^2.8.6",
     "react": "19.2.4",
@@ -24,7 +24,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.3.5",
+    "eslint-config-next": "16.3.6",
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
     "typescript": "^5"
