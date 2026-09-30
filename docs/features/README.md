@@ -6,6 +6,7 @@ One page per feature added to Telemetry Chopper after the V1 launch: what it doe
 |---|---|---|---|
 | 1 | [Vendor rate cards](01-vendor-rate-cards.md): price savings on measured dropped bytes × your negotiated per-GB rates | Shipped | [#31](https://github.com/PRIYAM232/telemetry-chopper/pull/31), [#32](https://github.com/PRIYAM232/telemetry-chopper/pull/32) |
 | 2 | [Overage tier modeling](02-overage-tier-model.md): track billable volume against your committed tier and price the overage penalties your rules prevent | Shipped | [#33](https://github.com/PRIYAM232/telemetry-chopper/pull/33) |
+| 3 | [Split-metric pricing](03-split-ingest-indexing.md): ingest $/GB + indexing $/million events, a new EXCLUDE_INDEX action, and an ingest-vs-indexing savings breakdown | Shipped | [#35](https://github.com/PRIYAM232/telemetry-chopper/pull/35) |
 
 ## How the cost features fit together
 
@@ -28,6 +29,7 @@ flowchart LR
 |---|---|---|
 | `*_dropped_bytes` | OTLP protobuf size of each span, log record or metric the ruleset removed | Feature 1 (savings), Feature 2 (volume without Chopper) |
 | `*_forwarded_bytes` | OTLP protobuf size of each batch passed downstream, envelopes included: the volume your vendor still bills | Feature 2 (billable volume) |
+| `*_unindexed` | Records forwarded with `chopper.index=false` by an EXCLUDE_INDEX rule (traces and logs) | Feature 3 (indexing savings) |
 
 Both are **optional** in the heartbeat. Collectors that predate them keep working, and the dashboard flags their data as unpriced or unmeasured instead of guessing.
 

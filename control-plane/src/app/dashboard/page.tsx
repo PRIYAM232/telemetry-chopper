@@ -9,13 +9,14 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PolicyAction, TargetSignal, ConditionOp } from "@/generated/prisma/enums";
 import type { PolicyRuleModel } from "@/generated/prisma/models";
-import { formatBytes, formatUSD } from "@/lib/format";
+import { formatUSD } from "@/lib/format";
 import { computeSavings, getRateCard, rateCardLabel } from "@/lib/pricing";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
 import { deleteRule, toggleRuleActive } from "./actions";
 import { AutoRefresh } from "./auto-refresh";
 import { BillingPeriodSection } from "./billing-period";
+import { SavingsBreakdown } from "./savings-breakdown";
 import { CreateRuleForm } from "./create-rule-form";
 import { SubmitButton } from "./pending";
 
@@ -75,6 +76,8 @@ export default async function DashboardPage() {
         tracesDroppedBytes: true,
         logsDroppedBytes: true,
         metricsDroppedBytes: true,
+        tracesUnindexed: true,
+        logsUnindexed: true,
       },
     }),
     // Heartbeats from collectors that predate byte accounting carry drop
@@ -112,9 +115,16 @@ export default async function DashboardPage() {
   // BIGINT sums arrive as bigint; Number() is exact below 9 PB.
   const savings = computeSavings(
     {
-      traces: Number(totals._sum.tracesDroppedBytes ?? 0),
-      logs: Number(totals._sum.logsDroppedBytes ?? 0),
-      metrics: Number(totals._sum.metricsDroppedBytes ?? 0),
+      droppedBytes: {
+        traces: Number(totals._sum.tracesDroppedBytes ?? 0),
+        logs: Number(totals._sum.logsDroppedBytes ?? 0),
+        metrics: Number(totals._sum.metricsDroppedBytes ?? 0),
+      },
+      droppedEvents: { traces: tracesDropped, logs: logsDropped },
+      unindexedEvents: {
+        traces: totals._sum.tracesUnindexed ?? 0,
+        logs: totals._sum.logsUnindexed ?? 0,
+      },
     },
     rateCard,
   );
@@ -212,7 +222,7 @@ export default async function DashboardPage() {
             {formatUSD(savings.totalUSD)}
           </p>
           <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
-            {formatBytes(savings.droppedBytes)} dropped all time × {rateCardLabel(rateCard)}{" "}
+            Ingest + indexing, all time × {rateCardLabel(rateCard)}{" "}
             {rateCard.vendor === null ? `$${rateCard.logsPricePerGb.toFixed(2)}/GB` : "rate card"} ·{" "}
             <Link
               href="/settings/pricing"
@@ -231,6 +241,8 @@ export default async function DashboardPage() {
           )}
         </div>
       </section>
+
+      <SavingsBreakdown savings={savings} rateCard={rateCard} />
 
       <BillingPeriodSection fleetId={fleet.id} rateCard={rateCard} nowMs={nowMs} />
 
@@ -305,6 +317,8 @@ const actionBadgeStyles: Record<string, string> = {
     "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950 dark:text-sky-400 dark:border-sky-900",
   [PolicyAction.THROTTLE]:
     "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-950 dark:text-orange-400 dark:border-orange-900",
+  [PolicyAction.EXCLUDE_INDEX]:
+    "bg-cyan-50 text-cyan-700 border-cyan-200 dark:bg-cyan-950 dark:text-cyan-400 dark:border-cyan-900",
 };
 
 // Mirrors ruleAppliesTraces()/ruleAppliesLogs()/ruleAppliesMetrics() in the
@@ -313,6 +327,7 @@ const actionBadgeStyles: Record<string, string> = {
 // ROUTE; LOGS rules enforce DROP, REDACT, and ROUTE (log sampling still
 // undefined); METRICS rules enforce DROP and ROUTE as of Phase 7. THROTTLE
 // (Phase 8) is enforced on every signal, but only with a positive rate.
+// EXCLUDE_INDEX is enforced on TRACES and LOGS (metrics aren't indexed).
 // Anything else (METRICS REDACT/SAMPLE, LOGS SAMPLE, SAMPLE without a rate,
 // ROUTE without a destination, rate-less THROTTLE) is stored and synced, but
 // collectors skip it — surface that so operators aren't misled.
@@ -328,12 +343,14 @@ function ruleEnforced(rule: PolicyRuleModel): boolean {
       return (
         rule.actionType === PolicyAction.DROP ||
         rule.actionType === PolicyAction.REDACT ||
+        rule.actionType === PolicyAction.EXCLUDE_INDEX ||
         (rule.actionType === PolicyAction.SAMPLE && rule.sampleRate !== null)
       );
     case TargetSignal.LOGS:
       return (
         rule.actionType === PolicyAction.DROP ||
-        rule.actionType === PolicyAction.REDACT
+        rule.actionType === PolicyAction.REDACT ||
+        rule.actionType === PolicyAction.EXCLUDE_INDEX
       );
     case TargetSignal.METRICS:
       return rule.actionType === PolicyAction.DROP;
@@ -375,6 +392,14 @@ function RuleCard({ rule }: { rule: PolicyRuleModel }) {
               title="Matching telemetry is tagged chopper.routing.destination and forked to this exporter by the collector's routing connector."
             >
               → {rule.targetDestination}
+            </span>
+          )}
+          {rule.actionType === PolicyAction.EXCLUDE_INDEX && (
+            <span
+              className="shrink-0 rounded-md border border-cyan-200 bg-cyan-50 px-2 py-0.5 font-mono text-xs text-cyan-700 dark:border-cyan-900 dark:bg-cyan-950 dark:text-cyan-400"
+              title="Matching telemetry is forwarded (ingest still billed) but stamped chopper.index=false. Your vendor's index exclusion or retention filter on that attribute keeps it out of the paid index."
+            >
+              chopper.index=false
             </span>
           )}
           {rule.actionType === PolicyAction.THROTTLE && rule.throttleRate !== null && (

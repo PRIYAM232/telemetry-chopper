@@ -30,6 +30,11 @@ enum PolicyAction {
   // per-collector token bucket partitioned on throttleGroupBy. Rate limiting,
   // not sampling: bursts under the rate pass untouched.
   THROTTLE
+  // EXCLUDE_INDEX never drops: the data plane stamps the matched span or log
+  // record with chopper.index = false and forwards it, so the vendor still
+  // ingests it but an index exclusion / retention filter on that attribute
+  // keeps it out of the paid index. TRACES and LOGS only.
+  EXCLUDE_INDEX
 }
 
 enum TargetSignal {
@@ -150,6 +155,10 @@ model FleetMetric {
   tracesForwardedBytes  BigInt @default(0)
   logsForwardedBytes    BigInt @default(0)
   metricsForwardedBytes BigInt @default(0)
+  // Records forwarded with chopper.index = false by EXCLUDE_INDEX rules:
+  // ingest still billed, indexing saved. Metrics aren't indexed events.
+  tracesUnindexed Int @default(0)
+  logsUnindexed   Int @default(0)
 
   createdAt DateTime @default(now())
 
@@ -173,6 +182,13 @@ model PricingConfig {
   tracesPricePerGb  Decimal @db.Decimal(10, 4)
   logsPricePerGb    Decimal @db.Decimal(10, 4)
   metricsPricePerGb Decimal @db.Decimal(10, 4)
+
+  // Split-metric pricing: USD per million indexed events (spans / log
+  // events), billed on top of ingest by vendors that price search indexing
+  // separately. 0 = the vendor doesn't bill indexing separately. Metrics
+  // aren't indexed events, so there is no metrics column.
+  tracesIndexPricePerMillion Decimal @default(0) @db.Decimal(10, 4)
+  logsIndexPricePerMillion   Decimal @default(0) @db.Decimal(10, 4)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

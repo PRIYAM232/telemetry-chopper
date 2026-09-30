@@ -69,24 +69,29 @@ func (p *tracesProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) e
 
 	spansIn := td.SpanCount()
 
-	var droppedBytes int64
+	var droppedBytes, unindexed int64
 	if len(rules) > 0 {
-		droppedBytes = p.applyRules(rules, td)
+		droppedBytes, unindexed = p.applyRules(rules, td)
 	}
 
 	spansOut := td.SpanCount()
 
 	// Sizing what goes downstream is one allocation-free walk of the
 	// surviving batch; a fully-dropped batch skips it.
-	vol := byteVolume{dropped: droppedBytes}
+	stats := batchStats{
+		received:     int64(spansIn),
+		dropped:      int64(spansIn - spansOut),
+		unindexed:    unindexed,
+		droppedBytes: droppedBytes,
+	}
 	if spansOut > 0 {
 		var sizer ptrace.ProtoMarshaler
-		vol.forwarded = int64(sizer.TracesSize(td))
+		stats.forwardedBytes = int64(sizer.TracesSize(td))
 	}
 
 	// Feeds both the stats heartbeat and the collector's self-metrics; safe on
 	// every batch, concurrently across receivers.
-	p.engine.observeTraces(ctx, int64(spansIn), int64(spansIn-spansOut), vol)
+	p.engine.observeTraces(ctx, stats)
 
 	p.logger.Debug("chopper_filter processed trace batch",
 		zap.Int("spans_in", spansIn),
@@ -108,15 +113,19 @@ func (p *tracesProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) e
 // attributes matched by REDACT rules in place, then prunes scope/resource
 // containers left empty so downstream components never see hollow envelopes.
 // Returns the OTLP protobuf size of every removed span — sized only on the
-// drop path, so batches the ruleset doesn't touch pay nothing for it.
-func (p *tracesProcessor) applyRules(rules []compiledRule, td ptrace.Traces) int64 {
+// drop path, so batches the ruleset doesn't touch pay nothing for it — and
+// the number of surviving spans an EXCLUDE_INDEX rule opted out of indexing.
+func (p *tracesProcessor) applyRules(rules []compiledRule, td ptrace.Traces) (droppedBytes, unindexed int64) {
 	var sizer ptrace.ProtoMarshaler
-	var droppedBytes int64
 	td.ResourceSpans().RemoveIf(func(rs ptrace.ResourceSpans) bool {
 		resAttrs := rs.Resource().Attributes()
 		rs.ScopeSpans().RemoveIf(func(ss ptrace.ScopeSpans) bool {
 			ss.Spans().RemoveIf(func(span ptrace.Span) bool {
-				if !p.evaluateSpan(rules, span, resAttrs) {
+				drop, excluded := p.evaluateSpan(rules, span, resAttrs)
+				if !drop {
+					if excluded {
+						unindexed++
+					}
 					return false
 				}
 				droppedBytes += int64(sizer.SpanSize(span))
@@ -126,16 +135,17 @@ func (p *tracesProcessor) applyRules(rules []compiledRule, td ptrace.Traces) int
 		})
 		return rs.ScopeSpans().Len() == 0
 	})
-	return droppedBytes
+	return droppedBytes, unindexed
 }
 
 // evaluateSpan runs every enforced rule against one span and reports whether
-// the span should be dropped. REDACT and ROUTE rules mutate the span (or its
+// the span should be dropped, and whether an EXCLUDE_INDEX rule opted it out
+// of indexing. REDACT, ROUTE and EXCLUDE_INDEX rules mutate the span (or its
 // resource) as a side effect but never drop it. Rules are independent
 // filters: a span survives only if no rule drops it, so neither a SAMPLE
 // keep-verdict nor a REDACT scrub nor a ROUTE tag shields the span from a
 // later DROP rule.
-func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, resAttrs pcommon.Map) bool {
+func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, resAttrs pcommon.Map) (drop, excluded bool) {
 	for i := range rules {
 		rule := &rules[i]
 		if !ruleAppliesTraces(rule) {
@@ -152,7 +162,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 				zap.String("span_name", span.Name()),
 				zap.String("trace_id", span.TraceID().String()),
 			)
-			return true
+			return true, false
 		case ActionSample:
 			// Deterministic head sampling keyed on the TraceID: every span of
 			// a trace computes the same bucket, so traces are kept or dropped
@@ -164,7 +174,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 					zap.String("span_name", span.Name()),
 					zap.String("trace_id", span.TraceID().String()),
 				)
-				return true
+				return true, false
 			}
 			// Trace sampled in; later rules may still drop the span.
 		case ActionRedact:
@@ -194,12 +204,18 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 					zap.String("span_name", span.Name()),
 					zap.String("trace_id", span.TraceID().String()),
 				)
-				return true
+				return true, false
 			}
 			// Under the rate; later rules may still drop the span.
+		case ActionExcludeIndex:
+			// Forwarded (ingest still billed) but opted out of the vendor's
+			// index. Later rules may still drop the span, in which case it
+			// counts as dropped, not unindexed.
+			span.Attributes().PutBool(attrIndexExclude, false)
+			excluded = true
 		}
 	}
-	return false
+	return false, excluded
 }
 
 // redactAttribute scrubs the rule's condition field, wherever the attribute

@@ -473,9 +473,9 @@ func TestReportStatsOnceSendsDroppedBytes(t *testing.T) {
 
 	e := newRuleEngine(zap.NewNop(), &Config{StatsEndpoint: srv.URL, FleetKey: "test-key"})
 	ctx := context.Background()
-	e.observeTraces(ctx, 10, 4, byteVolume{dropped: 400, forwarded: 600})
-	e.observeLogs(ctx, 6, 2, byteVolume{dropped: 250, forwarded: 500})
-	e.observeMetrics(ctx, 3, 1, byteVolume{dropped: 90, forwarded: 180})
+	e.observeTraces(ctx, batchStats{received: 10, dropped: 4, unindexed: 3, droppedBytes: 400, forwardedBytes: 600})
+	e.observeLogs(ctx, batchStats{received: 6, dropped: 2, unindexed: 1, droppedBytes: 250, forwardedBytes: 500})
+	e.observeMetrics(ctx, batchStats{received: 3, dropped: 1, droppedBytes: 90, forwardedBytes: 180})
 
 	// Failed POST: nothing is lost.
 	status = http.StatusInternalServerError
@@ -496,6 +496,9 @@ func TestReportStatsOnceSendsDroppedBytes(t *testing.T) {
 	if sent.TracesDroppedBytes != 400 || sent.LogsDroppedBytes != 250 || sent.MetricsDroppedBytes != 90 {
 		t.Errorf("sent dropped bytes = %d/%d/%d, want 400/250/90",
 			sent.TracesDroppedBytes, sent.LogsDroppedBytes, sent.MetricsDroppedBytes)
+	}
+	if sent.TracesUnindexed != 3 || sent.LogsUnindexed != 1 {
+		t.Errorf("sent unindexed = %d/%d, want 3/1", sent.TracesUnindexed, sent.LogsUnindexed)
 	}
 	if sent.TracesForwardedBytes != 600 || sent.LogsForwardedBytes != 500 || sent.MetricsForwardedBytes != 180 {
 		t.Errorf("sent forwarded bytes = %d/%d/%d, want 600/500/180",

@@ -88,15 +88,19 @@ func (p *metricsProcessor) ConsumeMetrics(ctx context.Context, md pmetric.Metric
 
 	// Sizing what goes downstream is one allocation-free walk of the
 	// surviving batch; a fully-dropped batch skips it.
-	vol := byteVolume{dropped: droppedBytes}
+	stats := batchStats{
+		received:     int64(metricsIn),
+		dropped:      int64(metricsIn - metricsOut),
+		droppedBytes: droppedBytes,
+	}
 	if metricsOut > 0 {
 		var sizer pmetric.ProtoMarshaler
-		vol.forwarded = int64(sizer.MetricsSize(md))
+		stats.forwardedBytes = int64(sizer.MetricsSize(md))
 	}
 
 	// Feeds both the stats heartbeat and the collector's self-metrics; safe on
 	// every batch, concurrently across receivers.
-	p.engine.observeMetrics(ctx, int64(metricsIn), int64(metricsIn-metricsOut), vol)
+	p.engine.observeMetrics(ctx, stats)
 
 	p.logger.Debug("chopper_filter processed metric batch",
 		zap.Int("metrics_in", metricsIn),

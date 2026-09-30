@@ -61,6 +61,16 @@ export function ActionFields() {
         </Field>
       )}
 
+      {action === PolicyAction.EXCLUDE_INDEX && (
+        <p className="rounded-lg border border-cyan-200 bg-cyan-50 px-3 py-2 text-xs text-cyan-800 dark:border-cyan-900 dark:bg-cyan-950 dark:text-cyan-300">
+          Keeps matching spans or logs flowing but stamps them{" "}
+          <code className="font-mono">chopper.index=false</code>. Add an index exclusion
+          or retention filter on that attribute in your vendor (for example{" "}
+          <code className="font-mono">@chopper.index:false</code>) so they&apos;re ingested
+          but not indexed. Traces and logs only.
+        </p>
+      )}
+
       {action === PolicyAction.ROUTE && (
         <Field label="Route to destination">
           <input

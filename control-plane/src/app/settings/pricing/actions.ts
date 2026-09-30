@@ -53,15 +53,17 @@ export async function savePricing(
   }
 
   const prices: Record<string, number> = {};
-  for (const [key, label] of [
-    ["tracesPricePerGb", "trace"],
-    ["logsPricePerGb", "log"],
-    ["metricsPricePerGb", "metric"],
+  for (const [key, label, unit, example] of [
+    ["tracesPricePerGb", "trace ingest", "per GB", "0.10"],
+    ["logsPricePerGb", "log ingest", "per GB", "0.10"],
+    ["metricsPricePerGb", "metric ingest", "per GB", "0.10"],
+    ["tracesIndexPricePerMillion", "indexed span", "per million events", "1.70"],
+    ["logsIndexPricePerMillion", "indexed log event", "per million events", "1.70"],
   ] as const) {
     const raw = formString(formData, key).replace(/^\$/, "");
     if (!PRICE_RE.test(raw)) {
       return fail(
-        `${label} price must be a USD amount per GB with at most 4 decimal places, e.g. 0.10`,
+        `${label} price must be a USD amount ${unit} with at most 4 decimal places, e.g. ${example}`,
       );
     }
     prices[key] = Number(raw);
@@ -73,6 +75,8 @@ export async function savePricing(
     tracesPricePerGb: prices.tracesPricePerGb,
     logsPricePerGb: prices.logsPricePerGb,
     metricsPricePerGb: prices.metricsPricePerGb,
+    tracesIndexPricePerMillion: prices.tracesIndexPricePerMillion,
+    logsIndexPricePerMillion: prices.logsIndexPricePerMillion,
   });
 
   revalidatePath("/settings/pricing");

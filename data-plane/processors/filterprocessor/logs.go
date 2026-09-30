@@ -78,24 +78,29 @@ func (p *logsProcessor) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 
 	recordsIn := ld.LogRecordCount()
 
-	var droppedBytes int64
+	var droppedBytes, unindexed int64
 	if len(rules) > 0 {
-		droppedBytes = p.applyRules(rules, ld)
+		droppedBytes, unindexed = p.applyRules(rules, ld)
 	}
 
 	recordsOut := ld.LogRecordCount()
 
 	// Sizing what goes downstream is one allocation-free walk of the
 	// surviving batch; a fully-dropped batch skips it.
-	vol := byteVolume{dropped: droppedBytes}
+	stats := batchStats{
+		received:     int64(recordsIn),
+		dropped:      int64(recordsIn - recordsOut),
+		unindexed:    unindexed,
+		droppedBytes: droppedBytes,
+	}
 	if recordsOut > 0 {
 		var sizer plog.ProtoMarshaler
-		vol.forwarded = int64(sizer.LogsSize(ld))
+		stats.forwardedBytes = int64(sizer.LogsSize(ld))
 	}
 
 	// Feeds both the stats heartbeat and the collector's self-metrics; safe on
 	// every batch, concurrently across receivers.
-	p.engine.observeLogs(ctx, int64(recordsIn), int64(recordsIn-recordsOut), vol)
+	p.engine.observeLogs(ctx, stats)
 
 	p.logger.Debug("chopper_filter processed log batch",
 		zap.Int("records_in", recordsIn),
@@ -113,15 +118,20 @@ func (p *logsProcessor) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 // scrubs fields matched by REDACT rules in place, then prunes scope/resource
 // containers left empty so downstream components never see hollow envelopes.
 // Returns the OTLP protobuf size of every removed log record — sized only on the
-// drop path, so batches the ruleset doesn't touch pay nothing for it.
-func (p *logsProcessor) applyRules(rules []compiledRule, ld plog.Logs) int64 {
+// drop path, so batches the ruleset doesn't touch pay nothing for it — and
+// the number of surviving records an EXCLUDE_INDEX rule opted out of
+// indexing.
+func (p *logsProcessor) applyRules(rules []compiledRule, ld plog.Logs) (droppedBytes, unindexed int64) {
 	var sizer plog.ProtoMarshaler
-	var droppedBytes int64
 	ld.ResourceLogs().RemoveIf(func(rl plog.ResourceLogs) bool {
 		resAttrs := rl.Resource().Attributes()
 		rl.ScopeLogs().RemoveIf(func(sl plog.ScopeLogs) bool {
 			sl.LogRecords().RemoveIf(func(lr plog.LogRecord) bool {
-				if !p.evaluateLogRecord(rules, lr, resAttrs) {
+				drop, excluded := p.evaluateLogRecord(rules, lr, resAttrs)
+				if !drop {
+					if excluded {
+						unindexed++
+					}
 					return false
 				}
 				droppedBytes += int64(sizer.LogRecordSize(lr))
@@ -131,15 +141,16 @@ func (p *logsProcessor) applyRules(rules []compiledRule, ld plog.Logs) int64 {
 		})
 		return rl.ScopeLogs().Len() == 0
 	})
-	return droppedBytes
+	return droppedBytes, unindexed
 }
 
 // evaluateLogRecord runs every enforced rule against one log record and
-// reports whether the record should be dropped. REDACT and ROUTE rules mutate
+// reports whether the record should be dropped, and whether an EXCLUDE_INDEX
+// rule opted it out of indexing. REDACT, ROUTE and EXCLUDE_INDEX rules mutate
 // the record (or its resource) as a side effect but never drop it. Rules are
 // independent filters: a record survives only if no rule drops it, so neither
 // a REDACT scrub nor a ROUTE tag shields the record from a later DROP rule.
-func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecord, resAttrs pcommon.Map) bool {
+func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecord, resAttrs pcommon.Map) (drop, excluded bool) {
 	for i := range rules {
 		rule := &rules[i]
 		if !ruleAppliesLogs(rule) {
@@ -155,7 +166,7 @@ func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecor
 				zap.String("rule", rule.Name),
 				zap.String("severity", lr.SeverityText()),
 			)
-			return true
+			return true, false
 		case ActionRedact:
 			p.redactLogField(rule, lr, resAttrs)
 			// Record survives with the field scrubbed; later rules may
@@ -181,12 +192,18 @@ func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecor
 					zap.String("rule", rule.Name),
 					zap.String("severity", lr.SeverityText()),
 				)
-				return true
+				return true, false
 			}
 			// Under the rate; later rules may still drop the record.
+		case ActionExcludeIndex:
+			// Forwarded (ingest still billed) but opted out of the vendor's
+			// index. Later rules may still drop the record, in which case it
+			// counts as dropped, not unindexed.
+			lr.Attributes().PutBool(attrIndexExclude, false)
+			excluded = true
 		}
 	}
-	return false
+	return false, excluded
 }
 
 // logConditionMatches resolves the rule's condition field on a log record and
