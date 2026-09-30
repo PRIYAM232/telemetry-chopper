@@ -102,3 +102,4 @@ Migration `20260930211512_pricing_rate_cards_and_dropped_bytes`:
 | 2026-09-30 | #31: rate cards, dropped-byte measurement, pricing page |
 | 2026-09-30 | #32: sub-cent savings show two significant digits instead of `$0.0000` (found in end-to-end testing) |
 | 2026-09-30 | #35 ([Feature 3](03-split-ingest-indexing.md)): the headline card becomes ingest + indexing savings; `computeSavings` takes event counts as well as bytes |
+| 2026-09-30 | #36 ([Feature 4](04-cloud-egress.md)): with cloud egress on, the headline card becomes **Total infrastructure & ingest savings** |

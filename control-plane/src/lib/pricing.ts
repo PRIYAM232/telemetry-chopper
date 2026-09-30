@@ -123,6 +123,7 @@ export type SavingsInput = {
 
 export type Savings = {
   droppedBytes: number;
+  droppedBytesBySignal: DroppedBytes;
   ingest: { traces: number; logs: number; metrics: number; total: number };
   indexing: {
     traces: number;
@@ -156,6 +157,7 @@ export function computeSavings(input: SavingsInput, card: SignalPrices & IndexPr
   indexing.total = indexing.traces + indexing.logs;
   return {
     droppedBytes: b.traces + b.logs + b.metrics,
+    droppedBytesBySignal: b,
     ingest,
     indexing,
     totalUSD: ingest.total + indexing.total,

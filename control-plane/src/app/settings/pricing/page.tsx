@@ -5,10 +5,12 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getEgressConfig } from "@/lib/egress";
 import { getCommitment } from "@/lib/overage";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_PRICE_PER_GB_USD, VENDOR_LABELS, getRateCard } from "@/lib/pricing";
 import { CommitmentForm } from "./commitment-form";
+import { EgressForm } from "./egress-form";
 import { PricingForm } from "./pricing-form";
 
 export const dynamic = "force-dynamic";
@@ -55,6 +57,7 @@ export default async function PricingSettingsPage() {
           </p>
           <PricingSection fleetId={fleet.id} />
           <CommitmentSection fleetId={fleet.id} />
+          <EgressSection fleetId={fleet.id} />
         </>
       )}
     </main>
@@ -94,6 +97,20 @@ async function CommitmentSection({ fleetId }: { fleetId: string }) {
         rules kept out of the penalty tier.
       </p>
       <CommitmentForm fleetId={fleetId} commitment={commitment} />
+    </section>
+  );
+}
+
+async function EgressSection({ fleetId }: { fleetId: string }) {
+  const config = await getEgressConfig(fleetId);
+  return (
+    <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+      <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">Cloud egress</h2>
+      <p className="mt-1 mb-5 text-sm text-zinc-600 dark:text-zinc-400">
+        Your cloud provider&apos;s outbound data transfer fee. Every GB your rules drop
+        never leaves your network, so it saves egress as well as vendor ingest.
+      </p>
+      <EgressForm fleetId={fleetId} config={config} />
     </section>
   );
 }
