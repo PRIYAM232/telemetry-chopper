@@ -78,6 +78,12 @@ export async function createRule(
     }
   }
 
+  // EXCLUDE_INDEX stamps an indexed event (span or log record); metrics
+  // aren't indexed, so a METRICS rule would be synced but never enforced.
+  if (actionType === PolicyAction.EXCLUDE_INDEX && targetSignal === TargetSignal.METRICS) {
+    return fail("EXCLUDE_INDEX applies to TRACES and LOGS only: metrics aren't indexed events");
+  }
+
   // sampleRate is only meaningful for SAMPLE; the data plane skips SAMPLE
   // rules without one, so require it here rather than ship a dead rule.
   let sampleRate: number | null = null;

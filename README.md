@@ -57,7 +57,7 @@ The planes only meet over two HTTP endpoints (rule sync and stats reporting), au
 
 ## Core capabilities
 
-Every rule targets a signal (traces, logs, or metrics), matches on attributes or content, and applies one of five actions:
+Every rule targets a signal (traces, logs, or metrics), matches on attributes or content, and applies one of six actions:
 
 | Action | What it does | Typical use |
 |---|---|---|
@@ -66,6 +66,7 @@ Every rule targets a signal (traces, logs, or metrics), matches on attributes or
 | **REDACT** | Masks only the matched substrings via zero-allocation regex — the rest of the payload passes through untouched. | SSNs, credit-card numbers, bearer tokens, emails — scrubbed before data leaves your network. |
 | **ROUTE** | Never drops; stamps the matching telemetry's resource with a routing destination that forks it into a different pipeline (e.g. `traces/in` → `traces/hot` or `traces/cold`). | Send audit logs to cheap cold storage while errors go to your hot APM backend ([how](#routing-to-hot-and-cold-backends)). |
 | **THROTTLE** | Token-bucket rate limiting (events/sec), isolated per tenant by an attribute key of your choice — one bucket per attribute *value*. | Cap each `tenant.id` at 100 logs/sec so one runaway customer can't flood the pipeline for everyone. |
+| **EXCLUDE_INDEX** | Never drops; stamps matching spans or log records with `chopper.index=false` so your vendor's index exclusion filter keeps them out of the paid search index while they're still ingested. | Keep INFO logs flowing to live tail and archives without paying to index them ([details](docs/features/03-split-ingest-indexing.md)). |
 
 Malformed rules (e.g. a SAMPLE without a rate) are skipped, not fatal — the data plane always fails open rather than blocking telemetry.
 

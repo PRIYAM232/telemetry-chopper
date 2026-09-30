@@ -23,6 +23,13 @@ const PRICE_FIELDS = [
   { name: "metricsPricePerGb", label: "Metrics", key: "metricsPricePerGb" },
 ] as const;
 
+// Split-metric pricing: indexing billed per million events on top of ingest.
+// Metrics aren't indexed events, so they have no field here.
+const INDEX_PRICE_FIELDS = [
+  { name: "logsIndexPricePerMillion", label: "Indexed log events", key: "logsIndexPricePerMillion" },
+  { name: "tracesIndexPricePerMillion", label: "Indexed spans", key: "tracesIndexPricePerMillion" },
+] as const;
+
 export function PricingForm({
   fleetId,
   card,
@@ -80,7 +87,7 @@ export function PricingForm({
 
       <fieldset className="flex flex-col gap-3">
         <legend className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
-          Negotiated ingest price, USD per GB
+          Ingest price, USD per GB
         </legend>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {PRICE_FIELDS.map((f) => (
@@ -105,6 +112,38 @@ export function PricingForm({
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           Use the rate from your contract. A signal your vendor doesn&apos;t bill
           per GB (metrics are often billed per series) can be set to 0.
+        </p>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3">
+        <legend className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          Indexing price, USD per million events
+        </legend>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {INDEX_PRICE_FIELDS.map((f) => (
+            <Field key={f.name} label={f.label}>
+              <div className="relative">
+                <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-zinc-400">
+                  $
+                </span>
+                <input
+                  name={f.name}
+                  required
+                  inputMode="decimal"
+                  pattern="\d{1,6}(\.\d{1,4})?"
+                  title="USD per million indexed events, up to 4 decimal places (e.g. 1.70)"
+                  defaultValue={String(card[f.key])}
+                  className={`${inputClass} pl-7 tabular-nums`}
+                />
+              </div>
+            </Field>
+          ))}
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          For vendors that bill search indexing separately from ingest (split-metric
+          pricing). Dropped records save both ingest and indexing; records an
+          EXCLUDE_INDEX rule keeps out of the index save indexing only. Leave 0 if your
+          vendor doesn&apos;t bill indexing separately.
         </p>
       </fieldset>
 

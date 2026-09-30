@@ -16,7 +16,8 @@
 //     "traces_dropped_bytes": int64, "logs_dropped_bytes": int64,
 //     "metrics_dropped_bytes": int64,
 //     "traces_forwarded_bytes": int64, "logs_forwarded_bytes": int64,
-//     "metrics_forwarded_bytes": int64
+//     "metrics_forwarded_bytes": int64,
+//     "traces_unindexed": int64, "logs_unindexed": int64
 //   }
 //
 // Phase-4 collectors still in the field send { "received", "dropped" }; those
@@ -25,7 +26,9 @@
 // metrics_* keys, which read as 0 below; collectors that predate byte
 // accounting omit the *_dropped_bytes and *_forwarded_bytes keys the same
 // way, so their drops are counted but contribute nothing to the priced
-// savings, and their traffic is invisible to the overage model.
+// savings, and their traffic is invisible to the overage model. The
+// *_unindexed counts (records forwarded but opted out of indexing by
+// EXCLUDE_INDEX rules) read as 0 when absent, like every other count.
 //
 // An all-zero body is still a valid heartbeat — it proves the collector is
 // alive — so it is stored, not skipped.
@@ -92,6 +95,8 @@ export async function POST(
   const logsDropped = asCount(payload.logs_dropped);
   const metricsReceived = asCount(payload.metrics_received);
   const metricsDropped = asCount(payload.metrics_dropped);
+  const tracesUnindexed = asCount(payload.traces_unindexed);
+  const logsUnindexed = asCount(payload.logs_unindexed);
   const tracesDroppedBytes = asBytes(payload.traces_dropped_bytes);
   const logsDroppedBytes = asBytes(payload.logs_dropped_bytes);
   const metricsDroppedBytes = asBytes(payload.metrics_dropped_bytes);
@@ -105,6 +110,8 @@ export async function POST(
     logsDropped === null ||
     metricsReceived === null ||
     metricsDropped === null ||
+    tracesUnindexed === null ||
+    logsUnindexed === null ||
     tracesDroppedBytes === null ||
     logsDroppedBytes === null ||
     metricsDroppedBytes === null ||
@@ -127,6 +134,8 @@ export async function POST(
       logsDropped,
       metricsReceived,
       metricsDropped,
+      tracesUnindexed,
+      logsUnindexed,
       tracesDroppedBytes,
       logsDroppedBytes,
       metricsDroppedBytes,

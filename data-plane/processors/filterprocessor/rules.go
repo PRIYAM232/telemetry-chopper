@@ -39,6 +39,13 @@ const redactedPatternPlaceholder = "[REDACTED_PATTERN]"
 // upserts).
 const attrRoutingDestination = "chopper.routing.destination"
 
+// attrIndexExclude is the RECORD attribute an EXCLUDE_INDEX rule sets to
+// false. Record-level, unlike the routing stamp: indexing is decided per
+// event by the vendor's exclusion filters (e.g. Datadog `@chopper.index:false`),
+// so only the matched record opts out — its neighbours under the same
+// resource are still indexed.
+const attrIndexExclude = "chopper.index"
+
 // compiledRule is a PolicyRule in its evaluation-ready form: the wire rule
 // plus derived state that must never be computed on the consume hot path.
 // Instances are created by compileRules at ruleset-publication time and are
@@ -139,7 +146,7 @@ func conditionUsable(rule *compiledRule) bool {
 
 // ruleAppliesTraces reports whether the traces processor enforces the rule at
 // all: it must be active, target traces, and use an action we implement
-// (DROP, SAMPLE, REDACT, ROUTE, THROTTLE). Any action added by a newer
+// (DROP, SAMPLE, REDACT, ROUTE, THROTTLE, EXCLUDE_INDEX). Any action added by a newer
 // control plane is fetched and cached but intentionally skipped. A SAMPLE
 // rule without a rate is malformed and likewise skipped — fail open rather
 // than guess a rate — and a ROUTE rule without a destination or a THROTTLE
@@ -150,7 +157,7 @@ func ruleAppliesTraces(rule *compiledRule) bool {
 		return false
 	}
 	switch rule.ActionType {
-	case ActionDrop, ActionRedact:
+	case ActionDrop, ActionRedact, ActionExcludeIndex:
 		return true
 	case ActionSample:
 		return rule.SampleRate != nil
@@ -172,7 +179,7 @@ func ruleAppliesLogs(rule *compiledRule) bool {
 		return false
 	}
 	switch rule.ActionType {
-	case ActionDrop, ActionRedact:
+	case ActionDrop, ActionRedact, ActionExcludeIndex:
 		return true
 	case ActionRoute:
 		return rule.TargetDestination != ""
@@ -189,7 +196,8 @@ func ruleAppliesLogs(rule *compiledRule) bool {
 // same whole-Metric granularity DROP already operates at. REDACT (which
 // datapoint field?) and SAMPLE (which stable key?) still have no metrics
 // semantics — those rules are stored and synced but skipped, mirroring how
-// LOGS SAMPLE is handled.
+// LOGS SAMPLE is handled. EXCLUDE_INDEX is skipped too: metrics aren't
+// indexed events.
 func ruleAppliesMetrics(rule *compiledRule) bool {
 	if !rule.IsActive || rule.TargetSignal != SignalMetrics || !conditionUsable(rule) {
 		return false

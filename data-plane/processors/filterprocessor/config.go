@@ -123,6 +123,12 @@ const (
 	// value of the ThrottleGroupBy attribute (see ratelimit.go). Rate
 	// limiting, not sampling: traffic under the rate passes untouched.
 	ActionThrottle = "THROTTLE"
+	// ActionExcludeIndex never drops: a match stamps the RECORD (span or log
+	// record) with chopper.index = false and forwards it. The vendor still
+	// ingests it, but an index exclusion / retention filter keyed on that
+	// attribute keeps it out of the paid search index. TRACES and LOGS only
+	// — metrics are not indexed events.
+	ActionExcludeIndex = "EXCLUDE_INDEX"
 )
 
 // Target signals.
