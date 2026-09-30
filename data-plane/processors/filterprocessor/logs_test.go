@@ -105,6 +105,9 @@ func TestConsumeLogsDropsBySeverity(t *testing.T) {
 	if b := p.engine.logsDroppedBytes.Load(); b != wantBytes || b == 0 {
 		t.Errorf("logsDroppedBytes = %d, want %d", b, wantBytes)
 	}
+	if b, want := p.engine.logsForwardedBytes.Load(), int64(sizer.LogsSize(ld)); b != want || b == 0 {
+		t.Errorf("logsForwardedBytes = %d, want %d", b, want)
+	}
 	// Log traffic must never bleed into the trace counters.
 	if r := p.engine.tracesReceived.Load(); r != 0 {
 		t.Errorf("tracesReceived = %d, want 0", r)

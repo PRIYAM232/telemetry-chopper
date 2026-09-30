@@ -5,8 +5,10 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { getCommitment } from "@/lib/overage";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_PRICE_PER_GB_USD, VENDOR_LABELS, getRateCard } from "@/lib/pricing";
+import { CommitmentForm } from "./commitment-form";
 import { PricingForm } from "./pricing-form";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +54,7 @@ export default async function PricingSettingsPage() {
             are priced as the GB each signal&apos;s rules dropped × your per-GB rate.
           </p>
           <PricingSection fleetId={fleet.id} />
+          <CommitmentSection fleetId={fleet.id} />
         </>
       )}
     </main>
@@ -74,6 +77,23 @@ async function PricingSection({ fleetId }: { fleetId: string }) {
         decimal GB (10⁹ bytes). Your vendor bills its own ingest encoding, so treat the
         dollar figure as a close estimate.
       </p>
+    </section>
+  );
+}
+
+async function CommitmentSection({ fleetId }: { fleetId: string }) {
+  const commitment = await getCommitment(fleetId);
+  return (
+    <section className="mt-6 rounded-xl border border-zinc-200 bg-white p-6 dark:border-zinc-800 dark:bg-zinc-950">
+      <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+        Volume commitment
+      </h2>
+      <p className="mt-1 mb-5 text-sm text-zinc-600 dark:text-zinc-400">
+        Your contract&apos;s monthly committed ingest and the penalty rate past it. The
+        dashboard tracks each billing period against it and prices the overage your
+        rules kept out of the penalty tier.
+      </p>
+      <CommitmentForm fleetId={fleetId} commitment={commitment} />
     </section>
   );
 }

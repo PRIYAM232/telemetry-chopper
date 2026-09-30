@@ -14,15 +14,18 @@
 //     "logs_received":    int64, "logs_dropped":    int64,
 //     "metrics_received": int64, "metrics_dropped": int64,
 //     "traces_dropped_bytes": int64, "logs_dropped_bytes": int64,
-//     "metrics_dropped_bytes": int64
+//     "metrics_dropped_bytes": int64,
+//     "traces_forwarded_bytes": int64, "logs_forwarded_bytes": int64,
+//     "metrics_forwarded_bytes": int64
 //   }
 //
 // Phase-4 collectors still in the field send { "received", "dropped" }; those
 // are accepted and recorded as trace counts so a fleet can upgrade its
 // control plane before its collectors. Pre-Phase-6 collectors simply omit the
 // metrics_* keys, which read as 0 below; collectors that predate byte
-// accounting omit the *_dropped_bytes keys the same way, so their drops are
-// counted but contribute nothing to the priced savings.
+// accounting omit the *_dropped_bytes and *_forwarded_bytes keys the same
+// way, so their drops are counted but contribute nothing to the priced
+// savings, and their traffic is invisible to the overage model.
 //
 // An all-zero body is still a valid heartbeat — it proves the collector is
 // alive — so it is stored, not skipped.
@@ -92,6 +95,9 @@ export async function POST(
   const tracesDroppedBytes = asBytes(payload.traces_dropped_bytes);
   const logsDroppedBytes = asBytes(payload.logs_dropped_bytes);
   const metricsDroppedBytes = asBytes(payload.metrics_dropped_bytes);
+  const tracesForwardedBytes = asBytes(payload.traces_forwarded_bytes);
+  const logsForwardedBytes = asBytes(payload.logs_forwarded_bytes);
+  const metricsForwardedBytes = asBytes(payload.metrics_forwarded_bytes);
   if (
     tracesReceived === null ||
     tracesDropped === null ||
@@ -101,7 +107,10 @@ export async function POST(
     metricsDropped === null ||
     tracesDroppedBytes === null ||
     logsDroppedBytes === null ||
-    metricsDroppedBytes === null
+    metricsDroppedBytes === null ||
+    tracesForwardedBytes === null ||
+    logsForwardedBytes === null ||
+    metricsForwardedBytes === null
   ) {
     return NextResponse.json(
       { error: "telemetry counts must be non-negative integers" },
@@ -121,6 +130,9 @@ export async function POST(
       tracesDroppedBytes,
       logsDroppedBytes,
       metricsDroppedBytes,
+      tracesForwardedBytes,
+      logsForwardedBytes,
+      metricsForwardedBytes,
     },
   });
 
