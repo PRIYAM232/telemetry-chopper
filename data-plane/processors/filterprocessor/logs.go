@@ -78,15 +78,16 @@ func (p *logsProcessor) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 
 	recordsIn := ld.LogRecordCount()
 
+	var droppedBytes int64
 	if len(rules) > 0 {
-		p.applyRules(rules, ld)
+		droppedBytes = p.applyRules(rules, ld)
 	}
 
 	recordsOut := ld.LogRecordCount()
 
 	// Feeds both the stats heartbeat and the collector's self-metrics; safe on
 	// every batch, concurrently across receivers.
-	p.engine.observeLogs(ctx, int64(recordsIn), int64(recordsIn-recordsOut))
+	p.engine.observeLogs(ctx, int64(recordsIn), int64(recordsIn-recordsOut), droppedBytes)
 
 	p.logger.Debug("chopper_filter processed log batch",
 		zap.Int("records_in", recordsIn),
@@ -103,17 +104,26 @@ func (p *logsProcessor) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 // applyRules removes every log record matched by an enforced DROP rule and
 // scrubs fields matched by REDACT rules in place, then prunes scope/resource
 // containers left empty so downstream components never see hollow envelopes.
-func (p *logsProcessor) applyRules(rules []compiledRule, ld plog.Logs) {
+// Returns the OTLP protobuf size of every removed log record — sized only on the
+// drop path, so batches the ruleset doesn't touch pay nothing for it.
+func (p *logsProcessor) applyRules(rules []compiledRule, ld plog.Logs) int64 {
+	var sizer plog.ProtoMarshaler
+	var droppedBytes int64
 	ld.ResourceLogs().RemoveIf(func(rl plog.ResourceLogs) bool {
 		resAttrs := rl.Resource().Attributes()
 		rl.ScopeLogs().RemoveIf(func(sl plog.ScopeLogs) bool {
 			sl.LogRecords().RemoveIf(func(lr plog.LogRecord) bool {
-				return p.evaluateLogRecord(rules, lr, resAttrs)
+				if !p.evaluateLogRecord(rules, lr, resAttrs) {
+					return false
+				}
+				droppedBytes += int64(sizer.LogRecordSize(lr))
+				return true
 			})
 			return sl.LogRecords().Len() == 0
 		})
 		return rl.ScopeLogs().Len() == 0
 	})
+	return droppedBytes
 }
 
 // evaluateLogRecord runs every enforced rule against one log record and

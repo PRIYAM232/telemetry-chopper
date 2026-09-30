@@ -93,6 +93,9 @@ func TestConsumeMetricsDropsByNameEquals(t *testing.T) {
 	addGauge(ms, "http.server.duration")
 	addGauge(ms, "http.server.active_requests")
 
+	var sizer pmetric.ProtoMarshaler
+	wantBytes := int64(sizer.MetricSize(ms.At(0)))
+
 	if err := p.ConsumeMetrics(context.Background(), md); err != nil {
 		t.Fatalf("ConsumeMetrics: %v", err)
 	}
@@ -106,6 +109,9 @@ func TestConsumeMetricsDropsByNameEquals(t *testing.T) {
 	}
 	if d := p.engine.metricsDropped.Load(); d != 1 {
 		t.Errorf("metricsDropped = %d, want 1", d)
+	}
+	if b := p.engine.metricsDroppedBytes.Load(); b != wantBytes || b == 0 {
+		t.Errorf("metricsDroppedBytes = %d, want %d", b, wantBytes)
 	}
 	// Metric traffic must never bleed into the other signals' counters.
 	if r := p.engine.tracesReceived.Load(); r != 0 {

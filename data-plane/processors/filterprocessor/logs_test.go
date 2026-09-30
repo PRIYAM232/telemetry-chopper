@@ -85,6 +85,9 @@ func TestConsumeLogsDropsBySeverity(t *testing.T) {
 	addLogRecord(slr, "DEBUG", "retrying connection")
 	addLogRecord(slr, "INFO", "user logged in")
 
+	var sizer plog.ProtoMarshaler
+	wantBytes := int64(sizer.LogRecordSize(slr.At(0)) + sizer.LogRecordSize(slr.At(1)))
+
 	if err := p.ConsumeLogs(context.Background(), ld); err != nil {
 		t.Fatalf("ConsumeLogs: %v", err)
 	}
@@ -98,6 +101,9 @@ func TestConsumeLogsDropsBySeverity(t *testing.T) {
 	}
 	if d := p.engine.logsDropped.Load(); d != 2 {
 		t.Errorf("logsDropped = %d, want 2", d)
+	}
+	if b := p.engine.logsDroppedBytes.Load(); b != wantBytes || b == 0 {
+		t.Errorf("logsDroppedBytes = %d, want %d", b, wantBytes)
 	}
 	// Log traffic must never bleed into the trace counters.
 	if r := p.engine.tracesReceived.Load(); r != 0 {

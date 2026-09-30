@@ -6,8 +6,10 @@
 // savings banner tracks the collectors' heartbeat cadence in near real time.
 
 import type { Metadata } from "next";
+import Link from "next/link";
 import { PolicyAction, TargetSignal, ConditionOp } from "@/generated/prisma/enums";
 import type { PolicyRuleModel } from "@/generated/prisma/models";
+import { computeSavings, getRateCard, rateCardLabel } from "@/lib/pricing";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
 import { deleteRule, toggleRuleActive } from "./actions";
@@ -22,11 +24,6 @@ export const metadata: Metadata = {
   title: "Telemetry Chopper — Fleet Dashboard",
   description: "Live telemetry savings and policy rules for your collector fleet.",
 };
-
-// Blended vendor ingest price used for the savings estimate, applied to
-// spans, log records, and metrics alike — close enough for a directional
-// number.
-const COST_PER_MILLION_RECORDS_USD = 0.15;
 
 // A collector heartbeats every ~10s; three missed beats means offline.
 const HEARTBEAT_STALE_MS = 30_000;
@@ -44,6 +41,18 @@ function formatUSD(value: number): string {
   // visible instead of rounding the whole banner to $0.00.
   if (value > 0 && value < 0.01) return `$${value.toFixed(4)}`;
   return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
+}
+
+// Decimal units, matching how vendors bill (and BYTES_PER_GB).
+function formatBytes(bytes: number): string {
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1000 && unit < units.length - 1) {
+    value /= 1000;
+    unit++;
+  }
+  return `${unit === 0 ? value : value.toFixed(value < 10 ? 2 : 1)} ${units[unit]}`;
 }
 
 export default async function DashboardPage() {
@@ -70,7 +79,7 @@ export default async function DashboardPage() {
     );
   }
 
-  const [totals, lastMetric] = await Promise.all([
+  const [totals, unsized, lastMetric, rateCard] = await Promise.all([
     prisma.fleetMetric.aggregate({
       where: { fleetId: fleet.id },
       _sum: {
@@ -80,13 +89,28 @@ export default async function DashboardPage() {
         logsDropped: true,
         metricsReceived: true,
         metricsDropped: true,
+        tracesDroppedBytes: true,
+        logsDroppedBytes: true,
+        metricsDroppedBytes: true,
       },
+    }),
+    // Heartbeats from collectors that predate byte accounting carry drop
+    // counts but no sizes, so they can't be priced — count them to say so.
+    prisma.fleetMetric.aggregate({
+      where: {
+        fleetId: fleet.id,
+        tracesDroppedBytes: 0,
+        logsDroppedBytes: 0,
+        metricsDroppedBytes: 0,
+      },
+      _sum: { tracesDropped: true, logsDropped: true, metricsDropped: true },
     }),
     prisma.fleetMetric.findFirst({
       where: { fleetId: fleet.id },
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
     }),
+    getRateCard(fleet.id),
   ]);
 
   const tracesReceived = totals._sum.tracesReceived ?? 0;
@@ -102,7 +126,19 @@ export default async function DashboardPage() {
   const received = tracesReceived + logsReceived + metricsReceived;
   const dropped = tracesDropped + logsDropped + metricsDropped;
   const reductionPct = received > 0 ? (dropped / received) * 100 : 0;
-  const savingsUSD = (dropped / 1_000_000) * COST_PER_MILLION_RECORDS_USD;
+  // BIGINT sums arrive as bigint; Number() is exact below 9 PB.
+  const savings = computeSavings(
+    {
+      traces: Number(totals._sum.tracesDroppedBytes ?? 0),
+      logs: Number(totals._sum.logsDroppedBytes ?? 0),
+      metrics: Number(totals._sum.metricsDroppedBytes ?? 0),
+    },
+    rateCard,
+  );
+  const unsizedDrops =
+    (unsized._sum.tracesDropped ?? 0) +
+    (unsized._sum.logsDropped ?? 0) +
+    (unsized._sum.metricsDropped ?? 0);
 
   // This server component is force-dynamic: each render is one request, so
   // request-time "now" is stable for the lifetime of the response and the
@@ -134,6 +170,13 @@ export default async function DashboardPage() {
             <code className="font-mono text-xs">{fleet.id}</code>
           </p>
         </div>
+        <div className="flex flex-wrap items-center gap-3">
+        <Link
+          href="/settings/pricing"
+          className="rounded-full border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
+        >
+          Pricing
+        </Link>
         <div
           className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium ${
             collectorOnline
@@ -151,6 +194,7 @@ export default async function DashboardPage() {
             : heartbeatAgeMs !== null
               ? `Last heartbeat ${Math.round(heartbeatAgeMs / 1000)}s ago`
               : "No heartbeat yet"}
+        </div>
         </div>
       </header>
 
@@ -179,12 +223,30 @@ export default async function DashboardPage() {
             />
           </div>
         </div>
-        <StatCard
-          label="Estimated savings"
-          value={formatUSD(savingsUSD)}
-          hint={`at $${COST_PER_MILLION_RECORDS_USD.toFixed(2)} per million spans/logs/metrics`}
-          accent="text-emerald-600 dark:text-emerald-400"
-        />
+        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Estimated savings</p>
+          <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
+            {formatUSD(savings.totalUSD)}
+          </p>
+          <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
+            {formatBytes(savings.droppedBytes)} dropped × {rateCardLabel(rateCard)}{" "}
+            {rateCard.vendor === null ? `$${rateCard.logsPricePerGb.toFixed(2)}/GB` : "rate card"} ·{" "}
+            <Link
+              href="/settings/pricing"
+              className="underline decoration-zinc-300 underline-offset-2 hover:text-zinc-700 dark:decoration-zinc-700 dark:hover:text-zinc-300"
+            >
+              {rateCard.vendor === null ? "set your rates" : "edit"}
+            </Link>
+          </p>
+          {unsizedDrops > 0 && (
+            <p
+              className="mt-1 text-xs text-amber-600 dark:text-amber-400"
+              title="These heartbeats came from collectors that report drop counts but not bytes. Upgrade the collectors to price their drops."
+            >
+              {integerFmt.format(unsizedDrops)} earlier drops unpriced (no byte data)
+            </p>
+          )}
+        </div>
       </section>
 
       {/* Rules */}
