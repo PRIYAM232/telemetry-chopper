@@ -68,6 +68,13 @@ type ruleEngine struct {
 	metricsReceived atomic.Int64
 	metricsDropped  atomic.Int64
 
+	// OTLP protobuf bytes of the records removed by the ruleset, per signal —
+	// the volume the control plane prices against the fleet's vendor rate
+	// card. Same drain/carry-over lifecycle as the counts above.
+	tracesDroppedBytes  atomic.Int64
+	logsDroppedBytes    atomic.Int64
+	metricsDroppedBytes atomic.Int64
+
 	// Self-metrics on the collector's own telemetry pipeline (see
 	// telemetry.go). nil disables recording — engines built directly in tests
 	// have no meter, and a failed instrument registration degrades to
@@ -177,27 +184,32 @@ func (e *ruleEngine) snapshotRules() []compiledRule {
 // telemetry endpoint. Called on every batch from the consume hot paths — the
 // atomic adds are contention-free and the counter adds are a single
 // attribute-less instrument record.
-func (e *ruleEngine) observeTraces(ctx context.Context, received, dropped int64) {
+//
+// droppedBytes feeds the heartbeat only; the self-metrics stay record counts.
+func (e *ruleEngine) observeTraces(ctx context.Context, received, dropped, droppedBytes int64) {
 	e.tracesReceived.Add(received)
 	e.tracesDropped.Add(dropped)
+	e.tracesDroppedBytes.Add(droppedBytes)
 	if t := e.telemetry; t != nil {
 		t.spansReceived.Add(ctx, received)
 		t.spansDropped.Add(ctx, dropped)
 	}
 }
 
-func (e *ruleEngine) observeLogs(ctx context.Context, received, dropped int64) {
+func (e *ruleEngine) observeLogs(ctx context.Context, received, dropped, droppedBytes int64) {
 	e.logsReceived.Add(received)
 	e.logsDropped.Add(dropped)
+	e.logsDroppedBytes.Add(droppedBytes)
 	if t := e.telemetry; t != nil {
 		t.logsReceived.Add(ctx, received)
 		t.logsDropped.Add(ctx, dropped)
 	}
 }
 
-func (e *ruleEngine) observeMetrics(ctx context.Context, received, dropped int64) {
+func (e *ruleEngine) observeMetrics(ctx context.Context, received, dropped, droppedBytes int64) {
 	e.metricsReceived.Add(received)
 	e.metricsDropped.Add(dropped)
+	e.metricsDroppedBytes.Add(droppedBytes)
 	if t := e.telemetry; t != nil {
 		t.metricsReceived.Add(ctx, received)
 		t.metricsDropped.Add(ctx, dropped)
@@ -349,7 +361,12 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 // Forward compatibility is free here: a pre-Phase-6 control plane simply
 // ignores the metrics_* keys it doesn't parse and still stores the trace/log
 // counts, so collectors can upgrade before their control plane without the
-// heartbeat degrading.
+// heartbeat degrading. The *_dropped_bytes keys get the same treatment.
+//
+// Dropped bytes are the OTLP protobuf size of each removed span / log record
+// / metric, excluding the resource and scope envelopes they shared with
+// surviving records — a slight undercount of the wire volume, never an
+// overcount.
 type statsPayload struct {
 	TracesReceived  int64 `json:"traces_received"`
 	TracesDropped   int64 `json:"traces_dropped"`
@@ -357,6 +374,10 @@ type statsPayload struct {
 	LogsDropped     int64 `json:"logs_dropped"`
 	MetricsReceived int64 `json:"metrics_received"`
 	MetricsDropped  int64 `json:"metrics_dropped"`
+
+	TracesDroppedBytes  int64 `json:"traces_dropped_bytes"`
+	LogsDroppedBytes    int64 `json:"logs_dropped_bytes"`
+	MetricsDroppedBytes int64 `json:"metrics_dropped_bytes"`
 }
 
 // runStatsLoop reports immediately on startup — an all-zero report is the
@@ -397,6 +418,10 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 		LogsDropped:     e.logsDropped.Swap(0),
 		MetricsReceived: e.metricsReceived.Swap(0),
 		MetricsDropped:  e.metricsDropped.Swap(0),
+
+		TracesDroppedBytes:  e.tracesDroppedBytes.Swap(0),
+		LogsDroppedBytes:    e.logsDroppedBytes.Swap(0),
+		MetricsDroppedBytes: e.metricsDroppedBytes.Swap(0),
 	}
 
 	if err := e.postStats(ctx, stats); err != nil {
@@ -406,6 +431,9 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 		e.logsDropped.Add(stats.LogsDropped)
 		e.metricsReceived.Add(stats.MetricsReceived)
 		e.metricsDropped.Add(stats.MetricsDropped)
+		e.tracesDroppedBytes.Add(stats.TracesDroppedBytes)
+		e.logsDroppedBytes.Add(stats.LogsDroppedBytes)
+		e.metricsDroppedBytes.Add(stats.MetricsDroppedBytes)
 		if ctx.Err() == nil {
 			e.logger.Warn("chopper_filter stats report failed, counts carry over to next interval",
 				zap.Int64("traces_received", stats.TracesReceived),
@@ -414,6 +442,9 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 				zap.Int64("logs_dropped", stats.LogsDropped),
 				zap.Int64("metrics_received", stats.MetricsReceived),
 				zap.Int64("metrics_dropped", stats.MetricsDropped),
+				zap.Int64("traces_dropped_bytes", stats.TracesDroppedBytes),
+				zap.Int64("logs_dropped_bytes", stats.LogsDroppedBytes),
+				zap.Int64("metrics_dropped_bytes", stats.MetricsDroppedBytes),
 				zap.Error(err),
 			)
 		}
@@ -427,6 +458,9 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 		zap.Int64("logs_dropped", stats.LogsDropped),
 		zap.Int64("metrics_received", stats.MetricsReceived),
 		zap.Int64("metrics_dropped", stats.MetricsDropped),
+		zap.Int64("traces_dropped_bytes", stats.TracesDroppedBytes),
+		zap.Int64("logs_dropped_bytes", stats.LogsDroppedBytes),
+		zap.Int64("metrics_dropped_bytes", stats.MetricsDroppedBytes),
 	)
 }
 

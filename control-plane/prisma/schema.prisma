@@ -48,6 +48,15 @@ enum ConditionOp {
   REGEX_MATCH
 }
 
+// The observability backend a fleet ships to, for the savings rate card.
+// Only a label: the prices are whatever the operator negotiated.
+enum ObservabilityVendor {
+  DATADOG
+  SPLUNK
+  NEW_RELIC
+  CUSTOM
+}
+
 model CollectorFleet {
   id          String   @id @default(uuid()) @db.Uuid
   name        String
@@ -59,6 +68,7 @@ model CollectorFleet {
 
   rules   PolicyRule[]
   metrics FleetMetric[]
+  pricing PricingConfig?
 }
 
 model PolicyRule {
@@ -125,9 +135,38 @@ model FleetMetric {
   // metric traffic".
   metricsReceived Int @default(0)
   metricsDropped  Int @default(0)
+  // OTLP protobuf bytes of the dropped records, per signal — what the
+  // dashboard prices against the fleet's rate card. BIGINT because a hot
+  // fleet can drop more than 2 GiB in one heartbeat interval. Default 0 for
+  // rows from collectors that predate byte accounting: their drops were
+  // counted but never sized, so they contribute no dollar savings.
+  tracesDroppedBytes  BigInt @default(0)
+  logsDroppedBytes    BigInt @default(0)
+  metricsDroppedBytes BigInt @default(0)
 
   createdAt DateTime @default(now())
 
   // The dashboard reads per-fleet time windows; index the exact access path.
   @@index([fleetId, createdAt])
+}
+
+// A fleet's vendor rate card: the negotiated ingest price per GB for each
+// signal, which the dashboard multiplies by the GB its rules dropped. At most
+// one per fleet; a fleet without one is priced at the defaults in
+// src/lib/pricing.ts.
+model PricingConfig {
+  fleetId String         @id @db.Uuid
+  fleet   CollectorFleet @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+
+  vendor ObservabilityVendor
+  // Display name for CUSTOM (e.g. "Grafana Cloud"); NULL for named vendors.
+  customVendorName String?
+
+  // USD per GB (10^9 bytes) ingested. NUMERIC, not float: these are prices.
+  tracesPricePerGb  Decimal @db.Decimal(10, 4)
+  logsPricePerGb    Decimal @db.Decimal(10, 4)
+  metricsPricePerGb Decimal @db.Decimal(10, 4)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

@@ -69,15 +69,16 @@ func (p *tracesProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) e
 
 	spansIn := td.SpanCount()
 
+	var droppedBytes int64
 	if len(rules) > 0 {
-		p.applyRules(rules, td)
+		droppedBytes = p.applyRules(rules, td)
 	}
 
 	spansOut := td.SpanCount()
 
 	// Feeds both the stats heartbeat and the collector's self-metrics; safe on
 	// every batch, concurrently across receivers.
-	p.engine.observeTraces(ctx, int64(spansIn), int64(spansIn-spansOut))
+	p.engine.observeTraces(ctx, int64(spansIn), int64(spansIn-spansOut), droppedBytes)
 
 	p.logger.Debug("chopper_filter processed trace batch",
 		zap.Int("spans_in", spansIn),
@@ -98,17 +99,26 @@ func (p *tracesProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) e
 // applyRules removes every span matched by an enforced DROP rule and scrubs
 // attributes matched by REDACT rules in place, then prunes scope/resource
 // containers left empty so downstream components never see hollow envelopes.
-func (p *tracesProcessor) applyRules(rules []compiledRule, td ptrace.Traces) {
+// Returns the OTLP protobuf size of every removed span — sized only on the
+// drop path, so batches the ruleset doesn't touch pay nothing for it.
+func (p *tracesProcessor) applyRules(rules []compiledRule, td ptrace.Traces) int64 {
+	var sizer ptrace.ProtoMarshaler
+	var droppedBytes int64
 	td.ResourceSpans().RemoveIf(func(rs ptrace.ResourceSpans) bool {
 		resAttrs := rs.Resource().Attributes()
 		rs.ScopeSpans().RemoveIf(func(ss ptrace.ScopeSpans) bool {
 			ss.Spans().RemoveIf(func(span ptrace.Span) bool {
-				return p.evaluateSpan(rules, span, resAttrs)
+				if !p.evaluateSpan(rules, span, resAttrs) {
+					return false
+				}
+				droppedBytes += int64(sizer.SpanSize(span))
+				return true
 			})
 			return ss.Spans().Len() == 0
 		})
 		return rs.ScopeSpans().Len() == 0
 	})
+	return droppedBytes
 }
 
 // evaluateSpan runs every enforced rule against one span and reports whether

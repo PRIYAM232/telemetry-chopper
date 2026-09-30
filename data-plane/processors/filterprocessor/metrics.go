@@ -79,15 +79,16 @@ func (p *metricsProcessor) ConsumeMetrics(ctx context.Context, md pmetric.Metric
 
 	metricsIn := md.MetricCount()
 
+	var droppedBytes int64
 	if len(rules) > 0 {
-		p.applyRules(rules, md)
+		droppedBytes = p.applyRules(rules, md)
 	}
 
 	metricsOut := md.MetricCount()
 
 	// Feeds both the stats heartbeat and the collector's self-metrics; safe on
 	// every batch, concurrently across receivers.
-	p.engine.observeMetrics(ctx, int64(metricsIn), int64(metricsIn-metricsOut))
+	p.engine.observeMetrics(ctx, int64(metricsIn), int64(metricsIn-metricsOut), droppedBytes)
 
 	p.logger.Debug("chopper_filter processed metric batch",
 		zap.Int("metrics_in", metricsIn),
@@ -103,18 +104,27 @@ func (p *metricsProcessor) ConsumeMetrics(ctx context.Context, md pmetric.Metric
 
 // applyRules removes every metric matched by an enforced DROP rule, then
 // prunes scope/resource containers left empty so downstream components never
-// see hollow envelopes.
-func (p *metricsProcessor) applyRules(rules []compiledRule, md pmetric.Metrics) {
+// see hollow envelopes. Returns the OTLP protobuf size of every removed
+// metric — sized only on the drop path, so batches the ruleset doesn't touch
+// pay nothing for it.
+func (p *metricsProcessor) applyRules(rules []compiledRule, md pmetric.Metrics) int64 {
+	var sizer pmetric.ProtoMarshaler
+	var droppedBytes int64
 	md.ResourceMetrics().RemoveIf(func(rm pmetric.ResourceMetrics) bool {
 		resAttrs := rm.Resource().Attributes()
 		rm.ScopeMetrics().RemoveIf(func(sm pmetric.ScopeMetrics) bool {
 			sm.Metrics().RemoveIf(func(metric pmetric.Metric) bool {
-				return p.evaluateMetric(rules, metric, resAttrs)
+				if !p.evaluateMetric(rules, metric, resAttrs) {
+					return false
+				}
+				droppedBytes += int64(sizer.MetricSize(metric))
+				return true
 			})
 			return sm.Metrics().Len() == 0
 		})
 		return rm.ScopeMetrics().Len() == 0
 	})
+	return droppedBytes
 }
 
 // evaluateMetric runs every enforced rule against one metric and reports

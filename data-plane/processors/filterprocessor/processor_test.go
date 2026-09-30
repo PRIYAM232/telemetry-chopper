@@ -2,6 +2,7 @@ package filterprocessor
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -405,6 +406,10 @@ func TestConsumeTracesCountsReceivedAndDropped(t *testing.T) {
 	unmatched.SetTraceID(traceIDFromByte(3))
 	unmatched.SetName("kept")
 
+	// Size the doomed spans before RemoveIf invalidates their handles.
+	var sizer ptrace.ProtoMarshaler
+	wantBytes := int64(sizer.SpanSize(ss.At(0)) + sizer.SpanSize(ss.At(1)))
+
 	if err := p.ConsumeTraces(context.Background(), td); err != nil {
 		t.Fatalf("ConsumeTraces: %v", err)
 	}
@@ -414,5 +419,51 @@ func TestConsumeTracesCountsReceivedAndDropped(t *testing.T) {
 	}
 	if got := p.engine.tracesDropped.Load(); got != 2 {
 		t.Errorf("tracesDropped = %d, want 2", got)
+	}
+	if got := p.engine.tracesDroppedBytes.Load(); got != wantBytes || got == 0 {
+		t.Errorf("tracesDroppedBytes = %d, want %d", got, wantBytes)
+	}
+}
+
+// The heartbeat carries dropped bytes next to the counts, drains them on a
+// successful POST, and folds them back in when the POST fails.
+func TestReportStatsOnceSendsDroppedBytes(t *testing.T) {
+	status := http.StatusNoContent
+	var got []statsPayload
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body statsPayload
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Errorf("decode stats body: %v", err)
+		}
+		got = append(got, body)
+		w.WriteHeader(status)
+	}))
+	defer srv.Close()
+
+	e := newRuleEngine(zap.NewNop(), &Config{StatsEndpoint: srv.URL, FleetKey: "test-key"})
+	ctx := context.Background()
+	e.observeTraces(ctx, 10, 4, 400)
+	e.observeLogs(ctx, 6, 2, 250)
+	e.observeMetrics(ctx, 3, 1, 90)
+
+	// Failed POST: nothing is lost.
+	status = http.StatusInternalServerError
+	e.reportStatsOnce(ctx)
+	if b := e.tracesDroppedBytes.Load(); b != 400 {
+		t.Errorf("tracesDroppedBytes after failed report = %d, want 400 carried over", b)
+	}
+
+	status = http.StatusNoContent
+	e.reportStatsOnce(ctx)
+	if len(got) != 2 {
+		t.Fatalf("stats POSTs = %d, want 2", len(got))
+	}
+	sent := got[1]
+	if sent.TracesDroppedBytes != 400 || sent.LogsDroppedBytes != 250 || sent.MetricsDroppedBytes != 90 {
+		t.Errorf("sent dropped bytes = %d/%d/%d, want 400/250/90",
+			sent.TracesDroppedBytes, sent.LogsDroppedBytes, sent.MetricsDroppedBytes)
+	}
+	if b := e.tracesDroppedBytes.Load() + e.logsDroppedBytes.Load() + e.metricsDroppedBytes.Load(); b != 0 {
+		t.Errorf("dropped bytes after successful report = %d, want 0", b)
 	}
 }
