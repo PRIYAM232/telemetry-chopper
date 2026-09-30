@@ -9,6 +9,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PolicyAction, TargetSignal, ConditionOp } from "@/generated/prisma/enums";
 import type { PolicyRuleModel } from "@/generated/prisma/models";
+import { computeEgressSavings, getEgressConfig } from "@/lib/egress";
 import { formatUSD } from "@/lib/format";
 import { computeSavings, getRateCard, rateCardLabel } from "@/lib/pricing";
 import { prisma } from "@/lib/prisma";
@@ -63,7 +64,7 @@ export default async function DashboardPage() {
     );
   }
 
-  const [totals, unsized, lastMetric, rateCard] = await Promise.all([
+  const [totals, unsized, lastMetric, rateCard, egressConfig] = await Promise.all([
     prisma.fleetMetric.aggregate({
       where: { fleetId: fleet.id },
       _sum: {
@@ -97,6 +98,7 @@ export default async function DashboardPage() {
       select: { createdAt: true },
     }),
     getRateCard(fleet.id),
+    getEgressConfig(fleet.id),
   ]);
 
   const tracesReceived = totals._sum.tracesReceived ?? 0;
@@ -128,6 +130,8 @@ export default async function DashboardPage() {
     },
     rateCard,
   );
+  const egress = computeEgressSavings(savings.droppedBytes, egressConfig);
+  const totalSavingsUSD = savings.totalUSD + egress.usd;
   const unsizedDrops =
     (unsized._sum.tracesDropped ?? 0) +
     (unsized._sum.logsDropped ?? 0) +
@@ -217,13 +221,16 @@ export default async function DashboardPage() {
           </div>
         </div>
         <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Estimated savings</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            {egress.enabled ? "Total infrastructure & ingest savings" : "Estimated savings"}
+          </p>
           <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
-            {formatUSD(savings.totalUSD)}
+            {formatUSD(totalSavingsUSD)}
           </p>
           <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
-            Ingest + indexing, all time × {rateCardLabel(rateCard)}{" "}
-            {rateCard.vendor === null ? `$${rateCard.logsPricePerGb.toFixed(2)}/GB` : "rate card"} ·{" "}
+            Vendor ingest + indexing at {rateCardLabel(rateCard)}{" "}
+            {rateCard.vendor === null ? `$${rateCard.logsPricePerGb.toFixed(2)}/GB` : "rate card"}
+            {egress.enabled && ` + cloud egress at $${egressConfig.pricePerGb}/GB`}, all time ·{" "}
             <Link
               href="/settings/pricing"
               className="underline decoration-zinc-300 underline-offset-2 hover:text-zinc-700 dark:decoration-zinc-700 dark:hover:text-zinc-300"
@@ -242,7 +249,12 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <SavingsBreakdown savings={savings} rateCard={rateCard} />
+      <SavingsBreakdown
+        savings={savings}
+        rateCard={rateCard}
+        egress={egress}
+        egressConfig={egressConfig}
+      />
 
       <BillingPeriodSection fleetId={fleet.id} rateCard={rateCard} nowMs={nowMs} />
 

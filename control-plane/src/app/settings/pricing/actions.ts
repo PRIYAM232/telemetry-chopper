@@ -1,7 +1,7 @@
 "use server";
 
-// Server Actions backing the /settings/pricing rate-card and volume
-// commitment forms.
+// Server Actions backing the /settings/pricing rate-card, volume
+// commitment and cloud egress forms.
 //
 // Same trust model as the dashboard's rule actions (see
 // src/app/dashboard/actions.ts): no operator auth yet, so when it lands this
@@ -9,6 +9,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ObservabilityVendor } from "@/generated/prisma/enums";
+import { saveEgressConfig } from "@/lib/egress";
 import { saveCommitment } from "@/lib/overage";
 import { saveRateCard } from "@/lib/pricing";
 
@@ -121,6 +122,45 @@ export async function saveCommitmentAction(
     committedGbPerMonth: Number(committedRaw),
     overageMultiplier,
     billingCycleDay,
+  });
+
+  revalidatePath("/settings/pricing");
+  revalidatePath("/dashboard");
+  return { error: null, savedAt: Date.now() };
+}
+
+// Matches NUMERIC(6, 2).
+const RATIO_RE = /^\d{1,4}(\.\d{1,2})?$/;
+
+export type SaveEgressState = SavePricingState;
+
+export async function saveEgressAction(
+  _prev: SaveEgressState,
+  formData: FormData,
+): Promise<SaveEgressState> {
+  const fleetId = formString(formData, "fleetId");
+  // An unchecked checkbox is simply absent from the form data.
+  const enabled = formData.get("enabled") === "on";
+  const priceRaw = formString(formData, "egressPricePerGb").replace(/^\$/, "");
+  const ratioRaw = formString(formData, "compressionRatio").replace(/:1$/, "");
+
+  if (!UUID_RE.test(fleetId)) return fail("invalid fleet id");
+  if (!PRICE_RE.test(priceRaw)) {
+    return fail("egress price must be a USD amount per GB with at most 4 decimal places, e.g. 0.09");
+  }
+  if (!RATIO_RE.test(ratioRaw)) {
+    return fail("compression ratio must be a number like 4 (for 4:1), up to 2 decimal places");
+  }
+  const compressionRatio = Number(ratioRaw);
+  // Below 1 would mean the wire carries MORE than the uncompressed payload.
+  if (compressionRatio < 1 || compressionRatio > 100) {
+    return fail("compression ratio must be between 1 (uncompressed) and 100");
+  }
+
+  await saveEgressConfig(fleetId, {
+    enabled,
+    pricePerGb: Number(priceRaw),
+    compressionRatio,
   });
 
   revalidatePath("/settings/pricing");

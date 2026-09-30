@@ -75,6 +75,7 @@ model CollectorFleet {
   metrics FleetMetric[]
   pricing    PricingConfig?
   commitment VolumeCommitment?
+  egress     EgressConfig?
 }
 
 model PolicyRule {
@@ -210,6 +211,28 @@ model VolumeCommitment {
   // Day of the month (UTC) each billing period starts; capped at 28 so
   // every month has one.
   billingCycleDay     Int     @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// Cloud egress: what the fleet's cloud provider charges per GB of telemetry
+// leaving its network on the way to the observability vendor. Every byte
+// the ruleset drops is a byte that no longer egresses, so the dashboard adds
+// this saving next to the vendor's ingest and indexing savings.
+model EgressConfig {
+  fleetId String         @id @db.Uuid
+  fleet   CollectorFleet @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+
+  // Off by default: collectors inside the vendor's cloud region, or behind
+  // a private link, pay no egress on telemetry.
+  enabled          Boolean @default(false)
+  // USD per GB (10^9 bytes) transferred out.
+  pricePerGb       Decimal @default(0.09) @db.Decimal(10, 4)
+  // Egress is billed on bytes on the wire; OTLP exporters compress (gzip by
+  // default), while the data plane measures uncompressed OTLP protobuf.
+  // Dropped bytes are divided by this ratio (4 = 4:1). 1 = no compression.
+  compressionRatio Decimal @default(1) @db.Decimal(6, 2)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

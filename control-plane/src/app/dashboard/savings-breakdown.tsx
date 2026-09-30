@@ -1,20 +1,24 @@
 // The dashboard's savings breakdown: all-time savings split by what each
-// dollar pays for — ingest (bytes the vendor never received) vs indexing
-// (events the vendor never indexed) — as a proportional bar with direct
+// dollar pays for — vendor ingest (bytes the vendor never received), vendor
+// indexing (events the vendor never indexed) and, when enabled, cloud egress
+// (bytes that never left the network) — as a proportional bar with direct
 // labels and a per-signal table. Server-rendered; refreshes with the page.
 //
 // Segment colors are the reference data-viz palette's categorical slots in
-// fixed order (blue, orange), each with its own dark-mode step. Text never
-// wears the series color; the swatch beside it carries identity.
+// fixed order (blue, orange, aqua), each with its own dark-mode step. Text
+// never wears the series color; the swatch beside it carries identity.
 
 import Link from "next/link";
 import { formatBytes, formatUSD } from "@/lib/format";
+import { computeEgressSavings, type EgressConfig, type EgressSavings } from "@/lib/egress";
 import type { RateCard, Savings } from "@/lib/pricing";
 
 const integerFmt = new Intl.NumberFormat("en-US");
 
 type Segment = {
   key: string;
+  // Who the saving is with: the observability vendor or the cloud provider.
+  payee: string;
   label: string;
   usd: number;
   detail: string;
@@ -29,13 +33,24 @@ function formatShare(fraction: number): string {
   return `${pct.toFixed(0)}%`;
 }
 
-export function SavingsBreakdown({ savings, rateCard }: { savings: Savings; rateCard: RateCard }) {
+export function SavingsBreakdown({
+  savings,
+  rateCard,
+  egress,
+  egressConfig,
+}: {
+  savings: Savings;
+  rateCard: RateCard;
+  egress: EgressSavings;
+  egressConfig: EgressConfig;
+}) {
   const indexingPriced =
     rateCard.tracesIndexPricePerMillion > 0 || rateCard.logsIndexPricePerMillion > 0;
 
   const segments: Segment[] = [
     {
       key: "ingest",
+      payee: "Observability vendor",
       label: "Ingest savings",
       usd: savings.ingest.total,
       detail: `${formatBytes(savings.droppedBytes)} never sent to the vendor`,
@@ -43,6 +58,7 @@ export function SavingsBreakdown({ savings, rateCard }: { savings: Savings; rate
     },
     {
       key: "indexing",
+      payee: "Observability vendor",
       label: "Indexing savings",
       usd: savings.indexing.total,
       detail: indexingPriced
@@ -51,12 +67,25 @@ export function SavingsBreakdown({ savings, rateCard }: { savings: Savings; rate
       swatch: "bg-[#eb6834] dark:bg-[#d95926]",
     },
   ];
+  if (egress.enabled) {
+    segments.push({
+      key: "egress",
+      payee: "Cloud provider",
+      label: "Cloud egress savings",
+      usd: egress.usd,
+      detail: `${formatBytes(egress.wireBytes)} on the wire never left your network (${egressConfig.compressionRatio}:1 compression, $${egressConfig.pricePerGb}/GB)`,
+      swatch: "bg-[#1baf7a] dark:bg-[#199e70]",
+    });
+  }
   const total = segments.reduce((sum, s) => sum + s.usd, 0);
+  const vendorTotal = savings.ingest.total + savings.indexing.total;
 
+  const b = savings.droppedBytesBySignal;
+  const egressFor = (bytes: number) => computeEgressSavings(bytes, egressConfig).usd;
   const rows = [
-    { label: "Spans", ingest: savings.ingest.traces, indexing: savings.indexing.traces as number | null },
-    { label: "Logs", ingest: savings.ingest.logs, indexing: savings.indexing.logs as number | null },
-    { label: "Metrics", ingest: savings.ingest.metrics, indexing: null },
+    { label: "Spans", ingest: savings.ingest.traces, indexing: savings.indexing.traces as number | null, egress: egressFor(b.traces) },
+    { label: "Logs", ingest: savings.ingest.logs, indexing: savings.indexing.logs as number | null, egress: egressFor(b.logs) },
+    { label: "Metrics", ingest: savings.ingest.metrics, indexing: null, egress: egressFor(b.metrics) },
   ];
 
   return (
@@ -67,6 +96,11 @@ export function SavingsBreakdown({ savings, rateCard }: { savings: Savings; rate
           <span className="ml-2 font-normal text-zinc-500 dark:text-zinc-400">all time</span>
         </h2>
         <p className="text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
+          {egress.enabled && (
+            <>
+              Vendor {formatUSD(vendorTotal)} + egress {formatUSD(egress.usd)} ={" "}
+            </>
+          )}
           Total <span className="font-semibold text-zinc-900 dark:text-zinc-50">{formatUSD(total)}</span>
         </p>
       </div>
@@ -94,12 +128,17 @@ export function SavingsBreakdown({ savings, rateCard }: { savings: Savings; rate
             ))}
       </div>
 
-      <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      <dl className={`mt-4 grid grid-cols-1 gap-4 ${segments.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
         {segments.map((s) => (
           <div key={s.key}>
-            <dt className="flex items-center gap-2 text-sm text-zinc-500 dark:text-zinc-400">
-              <span aria-hidden="true" className={`inline-block h-2.5 w-2.5 rounded-sm ${s.swatch}`} />
-              {s.label}
+            <dt className="text-sm text-zinc-500 dark:text-zinc-400">
+              <span className="block text-[11px] uppercase tracking-wide text-zinc-400 dark:text-zinc-500">
+                {s.payee}
+              </span>
+              <span className="mt-0.5 flex items-center gap-2">
+                <span aria-hidden="true" className={`inline-block h-2.5 w-2.5 rounded-sm ${s.swatch}`} />
+                {s.label}
+              </span>
             </dt>
             <dd className="mt-1 text-2xl font-semibold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">
               {formatUSD(s.usd)}
@@ -127,12 +166,26 @@ export function SavingsBreakdown({ savings, rateCard }: { savings: Savings; rate
         ))}
       </dl>
 
+      {!egress.enabled && (
+        <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
+          Cloud egress savings are off.{" "}
+          <Link
+            href="/settings/pricing"
+            className="underline decoration-zinc-300 underline-offset-2 hover:text-zinc-700 dark:decoration-zinc-700 dark:hover:text-zinc-300"
+          >
+            Turn them on
+          </Link>{" "}
+          if your telemetry leaves your cloud network to reach the vendor.
+        </p>
+      )}
+
       <table className="mt-4 w-full text-left text-xs tabular-nums">
         <thead>
           <tr className="text-zinc-400 dark:text-zinc-500">
             <th className="py-1 font-medium">Signal</th>
             <th className="py-1 text-right font-medium">Ingest</th>
             <th className="py-1 text-right font-medium">Indexing</th>
+            {egress.enabled && <th className="py-1 text-right font-medium">Egress</th>}
             <th className="py-1 text-right font-medium">Total</th>
           </tr>
         </thead>
@@ -144,7 +197,10 @@ export function SavingsBreakdown({ savings, rateCard }: { savings: Savings; rate
               <td className="py-1.5 text-right" title={r.indexing === null ? "Metrics aren't indexed events" : undefined}>
                 {r.indexing === null ? "—" : formatUSD(r.indexing)}
               </td>
-              <td className="py-1.5 text-right">{formatUSD(r.ingest + (r.indexing ?? 0))}</td>
+              {egress.enabled && <td className="py-1.5 text-right">{formatUSD(r.egress)}</td>}
+              <td className="py-1.5 text-right">
+                {formatUSD(r.ingest + (r.indexing ?? 0) + (egress.enabled ? r.egress : 0))}
+              </td>
             </tr>
           ))}
         </tbody>

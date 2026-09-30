@@ -125,3 +125,4 @@ Migration `20260930221103_split_ingest_index_pricing`:
 | Date | Change |
 |---|---|
 | 2026-09-30 | #35: EXCLUDE_INDEX action, unindexed counts, indexing prices, savings breakdown widget |
+| 2026-09-30 | #36 ([Feature 4](04-cloud-egress.md)): the breakdown widget gains a cloud egress segment and column |
