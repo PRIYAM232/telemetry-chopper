@@ -6,10 +6,11 @@
 //
 // Submitted through onSubmit rather than <form action>: React resets a form
 // after every action it runs, which would wipe the operator's input exactly
-// when it needs fixing. Here the form resets only after a successful save.
+// when it needs fixing. After a successful save the form clears
+// consistently: every select (Action, Signal, Operator) keeps its value for
+// the next rule, every typed field clears (issue #16).
 
-import { startTransition, useActionState, useEffect, useRef } from "react";
-import { requestFormReset } from "react-dom";
+import { startTransition, useActionState, useEffect, useRef, useState } from "react";
 import { ConditionOp } from "@/generated/prisma/enums";
 import { ActionFields } from "./action-fields";
 import { createRule, type CreateRuleState } from "./actions";
@@ -20,16 +21,25 @@ const initialState: CreateRuleState = { error: null };
 export function CreateRuleForm({ fleetId }: { fleetId: string }) {
   const [state, formAction, pending] = useActionState(createRule, initialState);
   const formRef = useRef<HTMLFormElement>(null);
+  // Controlled so the post-save reset keeps it, like Action and Signal.
+  const [conditionOp, setConditionOp] = useState<string>(ConditionOp.EQUALS);
 
   useEffect(() => {
     // Every completed submission returns a fresh state object, so this runs
     // once per save; skip the initial render.
-    // requestFormReset, not form.reset(): it is the reset React itself runs
-    // after a form action, which re-applies controlled values (the Action
-    // select in ActionFields) instead of leaving the DOM out of sync.
+    // Clear the typed inputs only — never reset the whole form. A form reset
+    // (form.reset() or React's requestFormReset) puts each <select> back on
+    // its initial option in the DOM without touching React state, so the
+    // Action select showed DROP while ActionFields still rendered the
+    // previous action's inputs, and the next submit sent the stale DOM
+    // value. The typed inputs are uncontrolled, so clearing their DOM value
+    // is the whole job; the selects are controlled and simply keep theirs.
     const form = formRef.current;
     if (form && state !== initialState && state.error === null) {
-      startTransition(() => requestFormReset(form));
+      for (const input of form.querySelectorAll<HTMLInputElement>("input:not([type=hidden])")) {
+        input.value = "";
+      }
+      form.querySelector<HTMLInputElement>("input[name=name]")?.focus();
     }
   }, [state]);
 
@@ -63,7 +73,12 @@ export function CreateRuleForm({ fleetId }: { fleetId: string }) {
             className={inputClass}
           />
           <div className="grid grid-cols-2 gap-2">
-            <select name="conditionOp" defaultValue={ConditionOp.EQUALS} className={inputClass}>
+            <select
+              name="conditionOp"
+              value={conditionOp}
+              onChange={(e) => setConditionOp(e.target.value)}
+              className={inputClass}
+            >
               {Object.values(ConditionOp).map((op) => (
                 <option key={op} value={op}>{op}</option>
               ))}
