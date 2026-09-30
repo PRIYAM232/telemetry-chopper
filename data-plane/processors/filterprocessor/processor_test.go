@@ -423,6 +423,37 @@ func TestConsumeTracesCountsReceivedAndDropped(t *testing.T) {
 	if got := p.engine.tracesDroppedBytes.Load(); got != wantBytes || got == 0 {
 		t.Errorf("tracesDroppedBytes = %d, want %d", got, wantBytes)
 	}
+	// td now holds exactly what was forwarded.
+	if got, want := p.engine.tracesForwardedBytes.Load(), int64(sizer.TracesSize(td)); got != want || got == 0 {
+		t.Errorf("tracesForwardedBytes = %d, want %d", got, want)
+	}
+}
+
+// A batch the ruleset drops entirely forwards nothing, so it adds no
+// forwarded bytes.
+func TestConsumeTracesFullyDroppedForwardsZeroBytes(t *testing.T) {
+	p := newTestProcessor(t, []PolicyRule{{
+		IsActive:       true,
+		Name:           "drop-marked",
+		ActionType:     ActionDrop,
+		TargetSignal:   SignalTraces,
+		ConditionField: "test.marker",
+		ConditionOp:    OpExists,
+	}})
+
+	td := ptrace.NewTraces()
+	ss := td.ResourceSpans().AppendEmpty().ScopeSpans().AppendEmpty().Spans()
+	addSpan(ss, traceIDFromByte(1), "dropped")
+
+	if err := p.ConsumeTraces(context.Background(), td); err != nil {
+		t.Fatalf("ConsumeTraces: %v", err)
+	}
+	if got := p.engine.tracesForwardedBytes.Load(); got != 0 {
+		t.Errorf("tracesForwardedBytes = %d, want 0", got)
+	}
+	if got := p.engine.tracesDroppedBytes.Load(); got == 0 {
+		t.Error("tracesDroppedBytes = 0, want the dropped span's size")
+	}
 }
 
 // The heartbeat carries dropped bytes next to the counts, drains them on a
@@ -442,15 +473,18 @@ func TestReportStatsOnceSendsDroppedBytes(t *testing.T) {
 
 	e := newRuleEngine(zap.NewNop(), &Config{StatsEndpoint: srv.URL, FleetKey: "test-key"})
 	ctx := context.Background()
-	e.observeTraces(ctx, 10, 4, 400)
-	e.observeLogs(ctx, 6, 2, 250)
-	e.observeMetrics(ctx, 3, 1, 90)
+	e.observeTraces(ctx, 10, 4, byteVolume{dropped: 400, forwarded: 600})
+	e.observeLogs(ctx, 6, 2, byteVolume{dropped: 250, forwarded: 500})
+	e.observeMetrics(ctx, 3, 1, byteVolume{dropped: 90, forwarded: 180})
 
 	// Failed POST: nothing is lost.
 	status = http.StatusInternalServerError
 	e.reportStatsOnce(ctx)
 	if b := e.tracesDroppedBytes.Load(); b != 400 {
 		t.Errorf("tracesDroppedBytes after failed report = %d, want 400 carried over", b)
+	}
+	if b := e.tracesForwardedBytes.Load(); b != 600 {
+		t.Errorf("tracesForwardedBytes after failed report = %d, want 600 carried over", b)
 	}
 
 	status = http.StatusNoContent
@@ -463,7 +497,14 @@ func TestReportStatsOnceSendsDroppedBytes(t *testing.T) {
 		t.Errorf("sent dropped bytes = %d/%d/%d, want 400/250/90",
 			sent.TracesDroppedBytes, sent.LogsDroppedBytes, sent.MetricsDroppedBytes)
 	}
+	if sent.TracesForwardedBytes != 600 || sent.LogsForwardedBytes != 500 || sent.MetricsForwardedBytes != 180 {
+		t.Errorf("sent forwarded bytes = %d/%d/%d, want 600/500/180",
+			sent.TracesForwardedBytes, sent.LogsForwardedBytes, sent.MetricsForwardedBytes)
+	}
 	if b := e.tracesDroppedBytes.Load() + e.logsDroppedBytes.Load() + e.metricsDroppedBytes.Load(); b != 0 {
 		t.Errorf("dropped bytes after successful report = %d, want 0", b)
+	}
+	if b := e.tracesForwardedBytes.Load() + e.logsForwardedBytes.Load() + e.metricsForwardedBytes.Load(); b != 0 {
+		t.Errorf("forwarded bytes after successful report = %d, want 0", b)
 	}
 }

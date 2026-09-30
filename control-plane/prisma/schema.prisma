@@ -68,7 +68,8 @@ model CollectorFleet {
 
   rules   PolicyRule[]
   metrics FleetMetric[]
-  pricing PricingConfig?
+  pricing    PricingConfig?
+  commitment VolumeCommitment?
 }
 
 model PolicyRule {
@@ -143,6 +144,12 @@ model FleetMetric {
   tracesDroppedBytes  BigInt @default(0)
   logsDroppedBytes    BigInt @default(0)
   metricsDroppedBytes BigInt @default(0)
+  // OTLP protobuf bytes forwarded downstream per signal — the volume the
+  // vendor still bills, which the overage model tracks against the fleet's
+  // committed tier. Default 0 for rows from collectors that predate it.
+  tracesForwardedBytes  BigInt @default(0)
+  logsForwardedBytes    BigInt @default(0)
+  metricsForwardedBytes BigInt @default(0)
 
   createdAt DateTime @default(now())
 
@@ -166,6 +173,27 @@ model PricingConfig {
   tracesPricePerGb  Decimal @db.Decimal(10, 4)
   logsPricePerGb    Decimal @db.Decimal(10, 4)
   metricsPricePerGb Decimal @db.Decimal(10, 4)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// A fleet's committed ingest tier: the monthly volume its contract covers at
+// the standard rate card, and the multiplier applied to every GB past it.
+// The dashboard compares each billing period's forwarded volume with what
+// would have been forwarded without the ruleset (forwarded + dropped) to
+// price the overage the rules kept out of the billable tier.
+model VolumeCommitment {
+  fleetId String         @id @db.Uuid
+  fleet   CollectorFleet @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+
+  // GB (10^9 bytes) per billing period, across all signals.
+  committedGbPerMonth Decimal @db.Decimal(14, 3)
+  // Overage price = the signal's rate-card price x this (1.5 = 150%).
+  overageMultiplier   Decimal @db.Decimal(5, 2)
+  // Day of the month (UTC) each billing period starts; capped at 28 so
+  // every month has one.
+  billingCycleDay     Int     @default(1)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
