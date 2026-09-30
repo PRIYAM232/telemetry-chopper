@@ -1,10 +1,12 @@
 # Telemetry Chopper CI — validation for pull requests and pushes to main.
 #
 # Six independent jobs, one per surface:
-#   go              — vet, gofmt and race-enabled tests for every Go module:
-#                     the chopper_filter engine and the sandbox load generator
+#   go              — vet, gofmt, race-enabled tests and govulncheck for
+#                     every Go module: the chopper_filter engine and the
+#                     sandbox load generator
 #   collector-build — assembles the otelcol-chopper distro with ocb, proving
-#                     builder-config.yaml and the processor still compose
+#                     builder-config.yaml and the processor still compose,
+#                     then runs govulncheck on the generated module (what ships)
 #   control-plane   — ESLint + Prisma schema validation
 #   helm            — chart lint + full renders with the Phase 10
 #                     monitoring toggles and every cold-storage archive on,
@@ -28,6 +30,10 @@ env:
   # Must match the collector line in data-plane/builder-config.yaml and the
   # Makefile's OCB_VERSION.
   OCB_VERSION: v0.156.0
+  # Pinned so a scanner release can't change results under us; installed via
+  # `go install` (checksum-verified by the Go sumdb) rather than a
+  # third-party action. Bump deliberately.
+  GOVULNCHECK_VERSION: v1.8.0
 
 jobs:
   go:
@@ -54,6 +60,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
+          # Resolve the newest 1.26 patch rather than whatever the runner
+          # image caches, or govulncheck fails on stdlib advisories that a
+          # released patch already fixes.
+          check-latest: true
           cache-dependency-path: ${{ matrix.dir }}/go.sum
       - name: go vet
         run: go vet ./...
@@ -67,6 +77,10 @@ jobs:
           fi
       - name: go test -race
         run: go test -race ./...
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
+          govulncheck ./...
 
   collector-build:
     name: Collector distro (ocb)
@@ -76,12 +90,25 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
+          check-latest: true
           cache-dependency-path: data-plane/processors/filterprocessor/go.sum
       - name: Install OpenTelemetry Collector Builder
         run: go install go.opentelemetry.io/collector/cmd/builder@${{ env.OCB_VERSION }}
       - name: Assemble otelcol-chopper
         working-directory: data-plane
         run: builder --config builder-config.yaml
+      # Source mode against the go.mod ocb generated in dist/, so the
+      # builder-config.yaml `replaces:` security pins are in effect and only
+      # vulnerabilities on a real call path fail the build. Not -mode=binary:
+      # ocb strips the binary (-s -w), and without symbols govulncheck flags
+      # every vulnerable function in every dependency module (false positives
+      # such as GO-2026-5932, see #24). Blocking, unfixed advisories included:
+      # a reachable one needs a pin, a code change or a deliberate decision.
+      - name: govulncheck (collector distro)
+        working-directory: data-plane/dist
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
+          govulncheck ./...
 
   control-plane:
     name: Control plane (lint + Prisma)
