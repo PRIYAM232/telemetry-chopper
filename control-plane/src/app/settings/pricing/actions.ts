@@ -1,6 +1,7 @@
 "use server";
 
-// Server Action backing the /settings/pricing rate-card form.
+// Server Actions backing the /settings/pricing rate-card and volume
+// commitment forms.
 //
 // Same trust model as the dashboard's rule actions (see
 // src/app/dashboard/actions.ts): no operator auth yet, so when it lands this
@@ -8,6 +9,7 @@
 
 import { revalidatePath } from "next/cache";
 import { ObservabilityVendor } from "@/generated/prisma/enums";
+import { saveCommitment } from "@/lib/overage";
 import { saveRateCard } from "@/lib/pricing";
 
 const UUID_RE =
@@ -71,6 +73,50 @@ export async function savePricing(
     tracesPricePerGb: prices.tracesPricePerGb,
     logsPricePerGb: prices.logsPricePerGb,
     metricsPricePerGb: prices.metricsPricePerGb,
+  });
+
+  revalidatePath("/settings/pricing");
+  revalidatePath("/dashboard");
+  return { error: null, savedAt: Date.now() };
+}
+
+// Matches NUMERIC(14, 3) / NUMERIC(5, 2), like PRICE_RE for the rate card.
+const COMMITTED_GB_RE = /^\d{1,11}(\.\d{1,3})?$/;
+const MULTIPLIER_RE = /^\d{1,3}(\.\d{1,2})?$/;
+
+export type SaveCommitmentState = SavePricingState;
+
+export async function saveCommitmentAction(
+  _prev: SaveCommitmentState,
+  formData: FormData,
+): Promise<SaveCommitmentState> {
+  const fleetId = formString(formData, "fleetId");
+  const committedRaw = formString(formData, "committedGbPerMonth").replace(/,/g, "");
+  const multiplierRaw = formString(formData, "overageMultiplier").replace(/x$/i, "");
+  const cycleDayRaw = formString(formData, "billingCycleDay");
+
+  if (!UUID_RE.test(fleetId)) return fail("invalid fleet id");
+  if (!COMMITTED_GB_RE.test(committedRaw) || Number(committedRaw) <= 0) {
+    return fail("committed volume must be a positive number of GB per month, e.g. 5000");
+  }
+  if (!MULTIPLIER_RE.test(multiplierRaw)) {
+    return fail("overage multiplier must be a number like 1.5 (up to 2 decimal places)");
+  }
+  const overageMultiplier = Number(multiplierRaw);
+  // Below 1 would make overage cheaper than the committed rate — not a
+  // penalty tier. Above 10 is almost certainly a typo.
+  if (overageMultiplier < 1 || overageMultiplier > 10) {
+    return fail("overage multiplier must be between 1 (no penalty) and 10");
+  }
+  const billingCycleDay = Number(cycleDayRaw);
+  if (!Number.isInteger(billingCycleDay) || billingCycleDay < 1 || billingCycleDay > 28) {
+    return fail("billing cycle day must be a whole number from 1 to 28");
+  }
+
+  await saveCommitment(fleetId, {
+    committedGbPerMonth: Number(committedRaw),
+    overageMultiplier,
+    billingCycleDay,
   });
 
   revalidatePath("/settings/pricing");

@@ -9,11 +9,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PolicyAction, TargetSignal, ConditionOp } from "@/generated/prisma/enums";
 import type { PolicyRuleModel } from "@/generated/prisma/models";
+import { formatBytes, formatUSD } from "@/lib/format";
 import { computeSavings, getRateCard, rateCardLabel } from "@/lib/pricing";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
 import { deleteRule, toggleRuleActive } from "./actions";
 import { AutoRefresh } from "./auto-refresh";
+import { BillingPeriodSection } from "./billing-period";
 import { CreateRuleForm } from "./create-rule-form";
 import { SubmitButton } from "./pending";
 
@@ -35,33 +37,6 @@ const dateFmt = new Intl.DateTimeFormat("en-US", {
   hour: "2-digit",
   minute: "2-digit",
 });
-
-// Sub-cent amounts keep two significant digits instead of a fixed number of
-// decimals.
-const subCentUSDFmt = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  maximumSignificantDigits: 2,
-});
-
-function formatUSD(value: number): string {
-  // Dev fleets drop kilobytes, not terabytes: priced per GB, their savings
-  // are fractions of a cent — $0.000022, not a misleading $0.0000.
-  if (value > 0 && value < 0.01) return subCentUSDFmt.format(value);
-  return value.toLocaleString("en-US", { style: "currency", currency: "USD" });
-}
-
-// Decimal units, matching how vendors bill (and BYTES_PER_GB).
-function formatBytes(bytes: number): string {
-  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1000 && unit < units.length - 1) {
-    value /= 1000;
-    unit++;
-  }
-  return `${unit === 0 ? value : value.toFixed(value < 10 ? 2 : 1)} ${units[unit]}`;
-}
 
 export default async function DashboardPage() {
   const fleet = await prisma.collectorFleet.findFirst({
@@ -237,7 +212,7 @@ export default async function DashboardPage() {
             {formatUSD(savings.totalUSD)}
           </p>
           <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
-            {formatBytes(savings.droppedBytes)} dropped × {rateCardLabel(rateCard)}{" "}
+            {formatBytes(savings.droppedBytes)} dropped all time × {rateCardLabel(rateCard)}{" "}
             {rateCard.vendor === null ? `$${rateCard.logsPricePerGb.toFixed(2)}/GB` : "rate card"} ·{" "}
             <Link
               href="/settings/pricing"
@@ -256,6 +231,8 @@ export default async function DashboardPage() {
           )}
         </div>
       </section>
+
+      <BillingPeriodSection fleetId={fleet.id} rateCard={rateCard} nowMs={nowMs} />
 
       {/* Rules */}
       <section aria-label="Policy rules" className="mt-10">

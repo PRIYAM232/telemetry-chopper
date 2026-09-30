@@ -113,6 +113,9 @@ func TestConsumeMetricsDropsByNameEquals(t *testing.T) {
 	if b := p.engine.metricsDroppedBytes.Load(); b != wantBytes || b == 0 {
 		t.Errorf("metricsDroppedBytes = %d, want %d", b, wantBytes)
 	}
+	if b, want := p.engine.metricsForwardedBytes.Load(), int64(sizer.MetricsSize(md)); b != want || b == 0 {
+		t.Errorf("metricsForwardedBytes = %d, want %d", b, want)
+	}
 	// Metric traffic must never bleed into the other signals' counters.
 	if r := p.engine.tracesReceived.Load(); r != 0 {
 		t.Errorf("tracesReceived = %d, want 0", r)

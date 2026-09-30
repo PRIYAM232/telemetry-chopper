@@ -76,9 +76,17 @@ func (p *tracesProcessor) ConsumeTraces(ctx context.Context, td ptrace.Traces) e
 
 	spansOut := td.SpanCount()
 
+	// Sizing what goes downstream is one allocation-free walk of the
+	// surviving batch; a fully-dropped batch skips it.
+	vol := byteVolume{dropped: droppedBytes}
+	if spansOut > 0 {
+		var sizer ptrace.ProtoMarshaler
+		vol.forwarded = int64(sizer.TracesSize(td))
+	}
+
 	// Feeds both the stats heartbeat and the collector's self-metrics; safe on
 	// every batch, concurrently across receivers.
-	p.engine.observeTraces(ctx, int64(spansIn), int64(spansIn-spansOut), droppedBytes)
+	p.engine.observeTraces(ctx, int64(spansIn), int64(spansIn-spansOut), vol)
 
 	p.logger.Debug("chopper_filter processed trace batch",
 		zap.Int("spans_in", spansIn),

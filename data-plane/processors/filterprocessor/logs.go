@@ -85,9 +85,17 @@ func (p *logsProcessor) ConsumeLogs(ctx context.Context, ld plog.Logs) error {
 
 	recordsOut := ld.LogRecordCount()
 
+	// Sizing what goes downstream is one allocation-free walk of the
+	// surviving batch; a fully-dropped batch skips it.
+	vol := byteVolume{dropped: droppedBytes}
+	if recordsOut > 0 {
+		var sizer plog.ProtoMarshaler
+		vol.forwarded = int64(sizer.LogsSize(ld))
+	}
+
 	// Feeds both the stats heartbeat and the collector's self-metrics; safe on
 	// every batch, concurrently across receivers.
-	p.engine.observeLogs(ctx, int64(recordsIn), int64(recordsIn-recordsOut), droppedBytes)
+	p.engine.observeLogs(ctx, int64(recordsIn), int64(recordsIn-recordsOut), vol)
 
 	p.logger.Debug("chopper_filter processed log batch",
 		zap.Int("records_in", recordsIn),
