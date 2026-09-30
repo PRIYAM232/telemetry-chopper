@@ -5,7 +5,7 @@ One page per feature added to Telemetry Chopper after the V1 launch: what it doe
 | # | Feature | Status | Pull requests |
 |---|---|---|---|
 | 1 | [Vendor rate cards](01-vendor-rate-cards.md): price savings on measured dropped bytes × your negotiated per-GB rates | Shipped | [#31](https://github.com/PRIYAM232/telemetry-chopper/pull/31), [#32](https://github.com/PRIYAM232/telemetry-chopper/pull/32) |
-| 2 | [Overage tier modeling](02-overage-tier-model.md): track billable volume against your committed tier and price the overage penalties your rules prevent | In review | [#33](https://github.com/PRIYAM232/telemetry-chopper/pull/33) |
+| 2 | [Overage tier modeling](02-overage-tier-model.md): track billable volume against your committed tier and price the overage penalties your rules prevent | Shipped | [#33](https://github.com/PRIYAM232/telemetry-chopper/pull/33) |
 
 ## How the cost features fit together
 

@@ -1,6 +1,6 @@
 # Feature 2: Overage tier modeling
 
-**Status:** In review · **PR:** [#33](https://github.com/PRIYAM232/telemetry-chopper/pull/33)
+**Status:** Shipped, 2026-09-30 · **PR:** [#33](https://github.com/PRIYAM232/telemetry-chopper/pull/33)
 
 ## Summary
 
