@@ -165,8 +165,8 @@ export async function toggleRuleActive(formData: FormData): Promise<void> {
   const ruleId = formString(formData, "ruleId");
   if (!UUID_RE.test(ruleId)) throw new Error("invalid rule id");
 
-  const rule = await prisma.policyRule.findUnique({
-    where: { id: ruleId },
+  const rule = await prisma.policyRule.findFirst({
+    where: { id: ruleId, deletedAt: null },
     select: { isActive: true },
   });
   if (!rule) throw new Error("rule not found");
@@ -179,11 +179,64 @@ export async function toggleRuleActive(formData: FormData): Promise<void> {
   revalidatePath("/dashboard");
 }
 
-export async function deleteRule(formData: FormData): Promise<void> {
-  const ruleId = formString(formData, "ruleId");
-  if (!UUID_RE.test(ruleId)) throw new Error("invalid rule id");
+// Delete is a soft delete with an undo window (issue #12): one stray click
+// used to remove a rule for good, and a REDACT rule's PII would reach the
+// vendor within one poll. The rule disappears from the dashboard and the
+// policy API immediately, so collectors stop enforcing it exactly as
+// before; restoreRule can bring it back (same id, history and position)
+// until the window closes. Expired soft deletes are purged on the next
+// delete or restore, so nothing lingers indefinitely in practice.
+const UNDO_WINDOW_MS = 60_000;
 
-  await prisma.policyRule.delete({ where: { id: ruleId } });
+export type RuleMutationResult = { ok: true; name: string } | { ok: false; error: string };
+
+// Hard-deletes rules whose undo window has closed (RuleMetric rows go with
+// them via the cascade).
+async function purgeExpiredDeletes(): Promise<void> {
+  await prisma.policyRule.deleteMany({
+    where: { deletedAt: { lt: new Date(Date.now() - UNDO_WINDOW_MS) } },
+  });
+}
+
+export async function deleteRule(ruleId: string): Promise<RuleMutationResult> {
+  if (typeof ruleId !== "string" || !UUID_RE.test(ruleId)) {
+    return { ok: false, error: "Invalid rule id" };
+  }
+
+  // Lookup + updateMany (not update) so an already-deleted or unknown rule
+  // is a clean "not found" rather than a throw.
+  const rule = await prisma.policyRule.findFirst({
+    where: { id: ruleId, deletedAt: null },
+    select: { name: true },
+  });
+  if (!rule) return { ok: false, error: "Rule not found (already deleted?)" };
+  await prisma.policyRule.updateMany({
+    where: { id: ruleId, deletedAt: null },
+    data: { deletedAt: new Date() },
+  });
+  await purgeExpiredDeletes();
 
   revalidatePath("/dashboard");
+  return { ok: true, name: rule.name };
+}
+
+export async function restoreRule(ruleId: string): Promise<RuleMutationResult> {
+  if (typeof ruleId !== "string" || !UUID_RE.test(ruleId)) {
+    return { ok: false, error: "Invalid rule id" };
+  }
+
+  // Purge first, so a rule whose window has closed is gone for good by the
+  // time we say so, and only an in-window delete can be found below.
+  await purgeExpiredDeletes();
+  const rule = await prisma.policyRule.findFirst({
+    where: { id: ruleId, deletedAt: { not: null } },
+    select: { name: true },
+  });
+  if (!rule) {
+    return { ok: false, error: "Too late to undo: the rule was permanently deleted" };
+  }
+  await prisma.policyRule.update({ where: { id: ruleId }, data: { deletedAt: null } });
+
+  revalidatePath("/dashboard");
+  return { ok: true, name: rule.name };
 }

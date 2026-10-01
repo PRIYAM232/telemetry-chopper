@@ -33,9 +33,13 @@ export async function GET(
     return auth.response;
   }
 
+  // A soft-deleted rule (in its undo window, issue #12) is gone as far as
+  // collectors are concerned. deletedAt is omitted so the wire format, and
+  // therefore the ETag of an unchanged ruleset, is what it was before.
   const rules = await prisma.policyRule.findMany({
-    where: { fleetId: auth.fleetId },
+    where: { fleetId: auth.fleetId, deletedAt: null },
     orderBy: { createdAt: "asc" },
+    omit: { deletedAt: true },
   });
 
   // Serialize once and hash those exact bytes. The ETag, the 304 comparison,
