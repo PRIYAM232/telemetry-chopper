@@ -54,7 +54,7 @@ func (s *sharedEngines) getOrCreate(set processor.Settings, cfg *Config) *ruleEn
 	// flaky control plane).
 	tel, err := newEngineTelemetry(set.TelemetrySettings, func() int64 {
 		return int64(len(e.snapshotRules()))
-	})
+	}, e.ruleStats.each)
 	if err != nil {
 		set.Logger.Warn("chopper_filter self-metrics disabled: instrument registration failed", zap.Error(err))
 	} else if tel != nil {

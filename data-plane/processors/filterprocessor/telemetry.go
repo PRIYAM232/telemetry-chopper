@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"go.opentelemetry.io/collector/component"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -35,8 +36,12 @@ type engineTelemetry struct {
 
 // newEngineTelemetry registers the chopper_filter instruments. rulesTotal is
 // observed at scrape time (an async gauge), so the rule count is always
-// current even though rulesets swap wholesale between scrapes.
-func newEngineTelemetry(ts component.TelemetrySettings, rulesTotal func() int64) (*engineTelemetry, error) {
+// current even though rulesets swap wholesale between scrapes. eachRule
+// walks the per-rule counters for the rule_matched / rule_dropped
+// observable counters: observed at scrape time from the cumulative atomics,
+// so the hot paths never touch an attribute set. Cardinality is bounded by
+// the ruleset size.
+func newEngineTelemetry(ts component.TelemetrySettings, rulesTotal func() int64, eachRule func(func(*ruleCounters))) (*engineTelemetry, error) {
 	// The collector service always injects a MeterProvider; tests building
 	// processor.Settings by hand may not. nil provider → self-metrics off,
 	// mirroring the nil-telemetry tolerance in the engine's observe helpers.
@@ -76,6 +81,39 @@ func newEngineTelemetry(ts component.TelemetrySettings, rulesTotal func() int64)
 	)
 	if err != nil {
 		errs = append(errs, err)
+	}
+
+	ruleMatched, err := meter.Int64ObservableCounter("otelcol_chopper_filter_rule_matched",
+		metric.WithDescription("Records whose condition a chopper_filter rule matched, per rule. A record dropped by an earlier rule is not evaluated by later ones."),
+		metric.WithUnit("{records}"),
+	)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	ruleDropped, err := meter.Int64ObservableCounter("otelcol_chopper_filter_rule_dropped",
+		metric.WithDescription("Records removed by a chopper_filter rule (DROP, unsampled SAMPLE, THROTTLE excess), per rule."),
+		metric.WithUnit("{records}"),
+	)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if ruleMatched != nil && ruleDropped != nil {
+		_, err = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+			eachRule(func(c *ruleCounters) {
+				attrs := metric.WithAttributes(
+					attribute.String("rule_id", c.id),
+					attribute.String("rule_name", c.name),
+					attribute.String("signal", c.signal),
+					attribute.String("action", c.action),
+				)
+				o.ObserveInt64(ruleMatched, c.totalMatched.Load(), attrs)
+				o.ObserveInt64(ruleDropped, c.totalDropped.Load(), attrs)
+			})
+			return nil
+		}, ruleMatched, ruleDropped)
+		if err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	if len(errs) > 0 {

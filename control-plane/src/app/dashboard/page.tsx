@@ -9,11 +9,19 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PolicyAction, TargetSignal, ConditionOp } from "@/generated/prisma/enums";
 import type { PolicyRuleModel } from "@/generated/prisma/models";
+import { formatBytes } from "@/lib/format";
 import { computeEgressSavings, getEgressConfig } from "@/lib/egress";
 import { formatUSD } from "@/lib/format";
 import { computeSavings, getRateCard, rateCardLabel } from "@/lib/pricing";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
+import {
+  EMPTY_RULE_STATS,
+  fleetReportsRuleStats,
+  getRuleStats,
+  ruleSavingsUSD,
+  type RuleStats,
+} from "@/lib/rule-stats";
 import { parseTimeRange, rangeLabel, rangeStart } from "@/lib/time-range";
 import { deleteRule, toggleRuleActive } from "./actions";
 import { AutoRefresh } from "./auto-refresh";
@@ -33,6 +41,10 @@ export const metadata: Metadata = {
 
 // A collector heartbeats every ~10s; three missed beats means offline.
 const HEARTBEAT_STALE_MS = 30_000;
+
+// A new rule needs a policy poll plus a heartbeat before its first counts can
+// land; don't call it silent before then.
+const RULE_WARMUP_MS = 60_000;
 
 const integerFmt = new Intl.NumberFormat("en-US");
 const dateFmt = new Intl.DateTimeFormat("en-US", {
@@ -83,7 +95,7 @@ export default async function DashboardPage({
   // the reduction reflects the current ruleset rather than all history.
   const inWindow = since === null ? {} : { createdAt: { gte: since } };
 
-  const [totals, unsized, lastMetric, rateCard, egressConfig] = await Promise.all([
+  const [totals, unsized, lastMetric, rateCard, egressConfig, ruleStats, perRuleReporting] = await Promise.all([
     prisma.fleetMetric.aggregate({
       where: { fleetId: fleet.id, ...inWindow },
       _sum: {
@@ -119,6 +131,8 @@ export default async function DashboardPage({
     }),
     getRateCard(fleet.id),
     getEgressConfig(fleet.id),
+    getRuleStats(fleet.id, since),
+    fleetReportsRuleStats(fleet.id),
   ]);
 
   const tracesReceived = totals._sum.tracesReceived ?? 0;
@@ -134,6 +148,11 @@ export default async function DashboardPage({
   const received = tracesReceived + logsReceived + metricsReceived;
   const dropped = tracesDropped + logsDropped + metricsDropped;
   const reductionPct = received > 0 ? (dropped / received) * 100 : 0;
+  const receivedBySignal: Record<string, number> = {
+    [TargetSignal.TRACES]: tracesReceived,
+    [TargetSignal.LOGS]: logsReceived,
+    [TargetSignal.METRICS]: metricsReceived,
+  };
   // BIGINT sums arrive as bigint; Number() is exact below 9 PB.
   const savings = computeSavings(
     {
@@ -289,6 +308,10 @@ export default async function DashboardPage({
             Policy rules
             <span className="ml-2 text-sm font-normal text-zinc-500 dark:text-zinc-400">
               {fleet.rules.length} total · synced by collectors every poll
+              {fleet.rules.length > 0 &&
+                (perRuleReporting
+                  ? ` · counts over ${range === "all" ? "" : "the "}${windowLabel}`
+                  : " · per-rule counts appear once your collectors report them (requires an updated collector)")}
             </span>
           </h2>
         </div>
@@ -307,7 +330,28 @@ export default async function DashboardPage({
                 No rules yet — every span passes through untouched.
               </div>
             ) : (
-              fleet.rules.map((rule) => <RuleCard key={rule.id} rule={rule} />)
+              fleet.rules.map((rule) => {
+                const stats = ruleStats.get(rule.id) ?? EMPTY_RULE_STATS;
+                const signalReceived = receivedBySignal[rule.targetSignal] ?? 0;
+                return (
+                  <RuleCard
+                    key={rule.id}
+                    rule={rule}
+                    stats={perRuleReporting ? stats : null}
+                    savingsUSD={ruleSavingsUSD(rule.targetSignal, stats, rateCard, egressConfig)}
+                    // Both come from the same heartbeats, so the share can't exceed
+                    // 1 — clamp anyway so hand-edited rows can't show 167%.
+                    dropShare={dropped > 0 ? Math.min(stats.dropped / dropped, 1) : 0}
+                    windowLabel={windowLabel}
+                    silent={
+                      perRuleReporting &&
+                      stats.matched === 0 &&
+                      signalReceived > 0 &&
+                      nowMs - rule.createdAt.getTime() > RULE_WARMUP_MS
+                    }
+                  />
+                );
+              })
             )}
           </div>
         </div>
@@ -395,7 +439,96 @@ function ruleEnforced(rule: PolicyRuleModel): boolean {
   }
 }
 
-function RuleCard({ rule }: { rule: PolicyRuleModel }) {
+// Actions that remove records, and so report drops and bytes per rule.
+const DROPPING_ACTIONS = new Set<string>([PolicyAction.DROP, PolicyAction.SAMPLE, PolicyAction.THROTTLE]);
+
+// Whole percents, but never round a real sliver to "0%" or "100%".
+function formatPct(fraction: number): string {
+  const pct = fraction * 100;
+  if (pct > 0 && pct < 1) return "<1%";
+  if (pct < 100 && pct > 99) return ">99%";
+  return `${pct.toFixed(0)}%`;
+}
+
+// The per-rule counts line (issue #14): what this rule matched and removed in
+// the dashboard's window, its share of the fleet's drops, and what it saved.
+function RuleStatsLine({
+  rule,
+  stats,
+  savingsUSD,
+  dropShare,
+}: {
+  rule: PolicyRuleModel;
+  stats: RuleStats;
+  savingsUSD: number;
+  dropShare: number;
+}) {
+  const drops = DROPPING_ACTIONS.has(rule.actionType);
+  const strong = "font-medium text-zinc-700 dark:text-zinc-200";
+  const parts: React.ReactNode[] = [
+    <span key="m">
+      <span className={strong}>{integerFmt.format(stats.matched)}</span> matched
+    </span>,
+  ];
+  if (drops) {
+    parts.push(
+      <span key="d">
+        <span className={strong}>{integerFmt.format(stats.dropped)}</span> dropped
+        {/* SAMPLE and THROTTLE drop only part of what they match; DROP is
+            always 100%, so its ratio says nothing. */}
+        {rule.actionType !== PolicyAction.DROP && stats.matched > 0 &&
+          ` (${formatPct(stats.dropped / stats.matched)} ${
+            rule.actionType === PolicyAction.THROTTLE ? "over the limit" : "sampled out"
+          })`}
+      </span>,
+    );
+    if (stats.droppedBytes > 0) {
+      parts.push(<span key="b">{formatBytes(stats.droppedBytes)}</span>);
+    }
+    if (dropShare > 0) {
+      parts.push(<span key="s">{formatPct(dropShare)} of fleet drops</span>);
+    }
+  }
+  if (rule.actionType === PolicyAction.EXCLUDE_INDEX) {
+    parts.push(
+      <span key="u">
+        <span className={strong}>{integerFmt.format(stats.unindexed)}</span> kept out of the index
+      </span>,
+    );
+  }
+  if (savingsUSD > 0) {
+    parts.push(
+      <span key="usd" className="font-medium text-emerald-600 dark:text-emerald-400">
+        saves {formatUSD(savingsUSD)}
+      </span>,
+    );
+  }
+  // Spacing, not "·" separators: on a narrow card a wrapped line would
+  // otherwise start with a dangling dot.
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs tabular-nums text-zinc-500 dark:text-zinc-400">
+      {parts}
+    </p>
+  );
+}
+
+function RuleCard({
+  rule,
+  stats,
+  savingsUSD,
+  dropShare,
+  windowLabel,
+  silent,
+}: {
+  rule: PolicyRuleModel;
+  // null until the fleet's collectors report per-rule counts at all.
+  stats: RuleStats | null;
+  savingsUSD: number;
+  dropShare: number;
+  windowLabel: string;
+  // Active, enforced, past warm-up, its signal had traffic, yet no matches.
+  silent: boolean;
+}) {
   // createRule rejects these now, but rules saved before that check (or
   // written straight to the database) can still hold a pattern the
   // collector's RE2 won't compile. The collector skips them, so say so.
@@ -498,6 +631,14 @@ function RuleCard({ rule }: { rule: PolicyRuleModel }) {
             not enforced yet
           </span>
         )}
+        {rule.isActive && ruleEnforced(rule) && regexError === null && silent && (
+          <span
+            className="shrink-0 rounded-md bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+            title={`Collectors evaluated this rule against live ${rule.targetSignal.toLowerCase()} traffic but its condition never matched. Check that "${rule.conditionField}" is spelled the way your telemetry spells it, and the value.`}
+          >
+            {windowLabel === "all time" ? "no matches yet" : `no matches in the ${windowLabel}`}
+          </span>
+        )}
         {regexError !== null && (
           <span
             className="shrink-0 rounded-md bg-rose-50 px-2 py-0.5 text-xs text-rose-700 dark:bg-rose-950 dark:text-rose-400"
@@ -507,6 +648,12 @@ function RuleCard({ rule }: { rule: PolicyRuleModel }) {
           </span>
         )}
       </div>
+
+      {stats !== null && (
+        <div className={rule.isActive ? "" : "opacity-60"}>
+          <RuleStatsLine rule={rule} stats={stats} savingsUSD={savingsUSD} dropShare={dropShare} />
+        </div>
+      )}
     </div>
   );
 }

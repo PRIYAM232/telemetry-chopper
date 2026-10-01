@@ -73,6 +73,7 @@ model CollectorFleet {
 
   rules   PolicyRule[]
   metrics FleetMetric[]
+  ruleMetrics RuleMetric[]
   pricing    PricingConfig?
   commitment VolumeCommitment?
   egress     EgressConfig?
@@ -116,6 +117,8 @@ model PolicyRule {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  metrics RuleMetric[]
 
   // The polling endpoint always filters by fleet and the data plane only
   // cares about active rules — index the exact access path.
@@ -236,4 +239,33 @@ model EgressConfig {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// One rule's share of one heartbeat interval (issue #14): which rule matched,
+// dropped and un-indexed the records counted in the same report's
+// FleetMetric row. Collectors only report rules with activity, so a rule
+// with no rows in a window matched nothing in it. Interval deltas like
+// FleetMetric — SUM over a window gives the rule's totals for that window.
+// Deleting a rule deletes its history.
+model RuleMetric {
+  id      String         @id @default(uuid()) @db.Uuid
+  fleetId String         @db.Uuid
+  fleet   CollectorFleet @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  ruleId  String         @db.Uuid
+  rule    PolicyRule     @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+
+  // Records whose condition this rule matched. A record dropped by an
+  // earlier rule is never evaluated by later ones, so it isn't counted here.
+  matched      Int
+  // Records this rule removed (DROP, unsampled SAMPLE, THROTTLE excess) and
+  // their OTLP protobuf bytes.
+  dropped      Int
+  droppedBytes BigInt
+  // Records this EXCLUDE_INDEX rule kept out of the vendor's index.
+  unindexed    Int
+
+  createdAt DateTime @default(now())
+
+  // The dashboard sums a fleet's rows over a time window, grouped by rule.
+  @@index([fleetId, createdAt])
 }

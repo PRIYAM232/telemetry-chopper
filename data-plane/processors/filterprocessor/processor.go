@@ -121,14 +121,17 @@ func (p *tracesProcessor) applyRules(rules []compiledRule, td ptrace.Traces) (dr
 		resAttrs := rs.Resource().Attributes()
 		rs.ScopeSpans().RemoveIf(func(ss ptrace.ScopeSpans) bool {
 			ss.Spans().RemoveIf(func(span ptrace.Span) bool {
-				drop, excluded := p.evaluateSpan(rules, span, resAttrs)
-				if !drop {
-					if excluded {
+				dropBy, excludedBy := p.evaluateSpan(rules, span, resAttrs)
+				if dropBy == nil {
+					if excludedBy != nil {
 						unindexed++
+						excludedBy.stats.unindexed.Add(1)
 					}
 					return false
 				}
-				droppedBytes += int64(sizer.SpanSize(span))
+				size := int64(sizer.SpanSize(span))
+				droppedBytes += size
+				dropBy.stats.countDrop(size)
 				return true
 			})
 			return ss.Spans().Len() == 0
@@ -138,14 +141,15 @@ func (p *tracesProcessor) applyRules(rules []compiledRule, td ptrace.Traces) (dr
 	return droppedBytes, unindexed
 }
 
-// evaluateSpan runs every enforced rule against one span and reports whether
-// the span should be dropped, and whether an EXCLUDE_INDEX rule opted it out
-// of indexing. REDACT, ROUTE and EXCLUDE_INDEX rules mutate the span (or its
+// evaluateSpan runs every enforced rule against one span and returns the rule
+// that dropped it (nil if it survives) and the first EXCLUDE_INDEX rule that
+// opted it out of indexing (nil if none), so the caller can credit each
+// rule's counters. Every rule whose condition matches counts the match. REDACT, ROUTE and EXCLUDE_INDEX rules mutate the span (or its
 // resource) as a side effect but never drop it. Rules are independent
 // filters: a span survives only if no rule drops it, so neither a SAMPLE
 // keep-verdict nor a REDACT scrub nor a ROUTE tag shields the span from a
 // later DROP rule.
-func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, resAttrs pcommon.Map) (drop, excluded bool) {
+func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, resAttrs pcommon.Map) (dropBy, excludedBy *compiledRule) {
 	for i := range rules {
 		rule := &rules[i]
 		if !ruleAppliesTraces(rule) {
@@ -154,6 +158,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 		if !evaluateCondition(rule, span, resAttrs) {
 			continue
 		}
+		rule.stats.countMatch()
 
 		switch rule.ActionType {
 		case ActionDrop:
@@ -162,7 +167,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 				zap.String("span_name", span.Name()),
 				zap.String("trace_id", span.TraceID().String()),
 			)
-			return true, false
+			return rule, nil
 		case ActionSample:
 			// Deterministic head sampling keyed on the TraceID: every span of
 			// a trace computes the same bucket, so traces are kept or dropped
@@ -174,7 +179,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 					zap.String("span_name", span.Name()),
 					zap.String("trace_id", span.TraceID().String()),
 				)
-				return true, false
+				return rule, nil
 			}
 			// Trace sampled in; later rules may still drop the span.
 		case ActionRedact:
@@ -204,7 +209,7 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 					zap.String("span_name", span.Name()),
 					zap.String("trace_id", span.TraceID().String()),
 				)
-				return true, false
+				return rule, nil
 			}
 			// Under the rate; later rules may still drop the span.
 		case ActionExcludeIndex:
@@ -212,10 +217,12 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 			// index. Later rules may still drop the span, in which case it
 			// counts as dropped, not unindexed.
 			span.Attributes().PutBool(attrIndexExclude, false)
-			excluded = true
+			if excludedBy == nil {
+				excludedBy = rule
+			}
 		}
 	}
-	return false, excluded
+	return nil, excludedBy
 }
 
 // redactAttribute scrubs the rule's condition field, wherever the attribute

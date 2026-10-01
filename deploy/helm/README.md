@@ -110,6 +110,7 @@ metrics, the `chopper_filter` engine registers:
 | `otelcol_chopper_filter_spans_received` / `_dropped` | counter | spans in / removed by rules |
 | `otelcol_chopper_filter_logs_received` / `_dropped` | counter | log records in / removed |
 | `otelcol_chopper_filter_metrics_received` / `_dropped` | counter | metrics in / removed |
+| `otelcol_chopper_filter_rule_matched` / `_rule_dropped` | counter | records each rule matched / removed, labelled `rule_id`, `rule_name`, `signal`, `action` (one series per synced rule) |
 
 Counters are cumulative since process start (Prometheus `rate()` material) —
 unlike the control-plane heartbeat, which reports interval deltas. The

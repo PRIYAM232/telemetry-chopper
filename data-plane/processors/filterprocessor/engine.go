@@ -88,6 +88,10 @@ type ruleEngine struct {
 	tracesUnindexed atomic.Int64
 	logsUnindexed   atomic.Int64
 
+	// Per-rule match/drop counters (rulestats.go), carried across ruleset
+	// swaps by rule ID and reported in the heartbeat's "rules" array.
+	ruleStats ruleStatsRegistry
+
 	// Self-metrics on the collector's own telemetry pipeline (see
 	// telemetry.go). nil disables recording — engines built directly in tests
 	// have no meter, and a failed instrument registration degrades to
@@ -356,6 +360,9 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 	// this design exists to keep away from the hot paths, and holding rulesMu
 	// through it would stall every consumer on snapshotRules meanwhile.
 	compiled := compileRules(payload.Rules, e.logger)
+	// Hand each rule its long-lived counters before anything can evaluate
+	// against the new slice.
+	e.ruleStats.adopt(compiled)
 
 	e.rulesMu.Lock()
 	e.rules = compiled
@@ -420,6 +427,11 @@ type statsPayload struct {
 	// Records forwarded but opted out of the vendor's index by EXCLUDE_INDEX.
 	TracesUnindexed int64 `json:"traces_unindexed"`
 	LogsUnindexed   int64 `json:"logs_unindexed"`
+
+	// Per-rule attribution of the totals above (issue #14): only rules with
+	// activity this interval, so idle rules cost nothing on the wire. A
+	// control plane that predates it ignores the key.
+	Rules []ruleStatsPayload `json:"rules,omitempty"`
 }
 
 // runStatsLoop reports immediately on startup — an all-zero report is the
@@ -471,6 +483,8 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 
 		TracesUnindexed: e.tracesUnindexed.Swap(0),
 		LogsUnindexed:   e.logsUnindexed.Swap(0),
+
+		Rules: e.ruleStats.drain(),
 	}
 
 	if err := e.postStats(ctx, stats); err != nil {
@@ -488,6 +502,7 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 		e.metricsForwardedBytes.Add(stats.MetricsForwardedBytes)
 		e.tracesUnindexed.Add(stats.TracesUnindexed)
 		e.logsUnindexed.Add(stats.LogsUnindexed)
+		e.ruleStats.restore(stats.Rules)
 		if ctx.Err() == nil {
 			e.logger.Warn("chopper_filter stats report failed, counts carry over to next interval",
 				zap.Int64("traces_received", stats.TracesReceived),
@@ -509,6 +524,7 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 		}
 		return
 	}
+	e.ruleStats.forgetRetired()
 
 	e.logger.Debug("chopper_filter stats reported",
 		zap.Int64("traces_received", stats.TracesReceived),
@@ -525,6 +541,7 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 		zap.Int64("metrics_forwarded_bytes", stats.MetricsForwardedBytes),
 		zap.Int64("traces_unindexed", stats.TracesUnindexed),
 		zap.Int64("logs_unindexed", stats.LogsUnindexed),
+		zap.Int("rules_reported", len(stats.Rules)),
 	)
 }
 

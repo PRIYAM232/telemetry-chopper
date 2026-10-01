@@ -67,6 +67,11 @@ type compiledRule struct {
 	// the consume hot paths is safe even though the rest of compiledRule is
 	// immutable-by-convention.
 	limiters *limiterGroup
+
+	// stats is the rule's per-rule tally (rulestats.go). Never nil:
+	// compileRules allocates it and the engine swaps in the rule's
+	// long-lived counters by ID before publishing the ruleset.
+	stats *ruleCounters
 }
 
 // compileRules derives the evaluation-ready ruleset from a freshly synced
@@ -77,7 +82,7 @@ type compiledRule struct {
 func compileRules(rules []PolicyRule, logger *zap.Logger) []compiledRule {
 	compiled := make([]compiledRule, len(rules))
 	for i := range rules {
-		compiled[i] = compiledRule{PolicyRule: rules[i]}
+		compiled[i] = compiledRule{PolicyRule: rules[i], stats: newRuleCounters(&rules[i])}
 
 		// THROTTLE buckets are allocated here, not on first match, so the
 		// hot paths only ever read the pointer. A rule whose rate is missing
