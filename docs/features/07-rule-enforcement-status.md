@@ -1,6 +1,6 @@
 # Feature 7: Rule enforcement status
 
-**Status:** Shipped, 2026-10-01 · **PR:** _pending_ · **Issue:** [#13](https://github.com/PRIYAM232/telemetry-chopper/issues/13)
+**Status:** Shipped, 2026-10-01 · **PR:** [#41](https://github.com/PRIYAM232/telemetry-chopper/pull/41) · **Issue:** [#13](https://github.com/PRIYAM232/telemetry-chopper/issues/13)
 
 ## Summary
 
