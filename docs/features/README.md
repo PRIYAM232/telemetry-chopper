@@ -11,6 +11,7 @@ One page per feature added to Telemetry Chopper after the V1 launch: what it doe
 | 5 | [Savings time range](05-savings-time-range.md): 1h / 24h / 7d / all-time window for the savings cards, so reduction reflects the current ruleset | Shipped | [#39](https://github.com/PRIYAM232/telemetry-chopper/pull/39) |
 | 6 | [Per-rule match and drop counts](06-per-rule-counts.md): which rule matched, dropped and saved what, a "no matches" warning for silent rules, and per-rule Prometheus counters | Shipped | [#40](https://github.com/PRIYAM232/telemetry-chopper/pull/40) |
 | 7 | [Rule enforcement status](07-rule-enforcement-status.md): paused vs invalid vs unsupported rules in the collector log, a per-rule `rule_status` metric to alert on, and Grafana panels listing rules that aren't enforced | Shipped | [#41](https://github.com/PRIYAM232/telemetry-chopper/pull/41) |
+| 8 | [Safe rule delete](08-safe-rule-delete.md): Delete asks for confirmation (with Pause as the alternative), then offers Undo; soft delete with a 60-second window | Shipped | _pending_ |
 
 ## How the cost features fit together
 

@@ -118,6 +118,13 @@ model PolicyRule {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Soft delete with an undo window (issue #12). Set by Delete on the
+  // dashboard: the rule vanishes from the dashboard and the policy API at
+  // once (collectors stop enforcing it on their next poll), but Undo can
+  // bring it back, same id and history, for UNDO_WINDOW_MS. Rules deleted
+  // longer ago are hard-deleted on the next rule mutation. NULL = live.
+  deletedAt DateTime?
+
   metrics RuleMetric[]
 
   // The polling endpoint always filters by fleet and the data plane only

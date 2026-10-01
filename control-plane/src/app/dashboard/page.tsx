@@ -23,7 +23,8 @@ import {
   type RuleStats,
 } from "@/lib/rule-stats";
 import { parseTimeRange, rangeLabel, rangeStart } from "@/lib/time-range";
-import { deleteRule, toggleRuleActive } from "./actions";
+import { toggleRuleActive } from "./actions";
+import { DeleteRuleButton, RuleToaster } from "./rule-delete";
 import { AutoRefresh } from "./auto-refresh";
 import { BillingPeriodSection } from "./billing-period";
 import { RangePicker } from "./range-picker";
@@ -62,7 +63,8 @@ export default async function DashboardPage({
   const range = parseTimeRange((await searchParams).range);
   const fleet = await prisma.collectorFleet.findFirst({
     orderBy: { createdAt: "asc" },
-    include: { rules: { orderBy: { createdAt: "asc" } } },
+    // Soft-deleted rules (issue #12) are hidden while their undo window runs.
+    include: { rules: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } } },
   });
 
   if (!fleet) {
@@ -185,6 +187,7 @@ export default async function DashboardPage({
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
       <AutoRefresh intervalMs={10_000} />
+      <RuleToaster />
 
       {/* Header */}
       <header className="flex flex-wrap items-center justify-between gap-4">
@@ -597,12 +600,10 @@ function RuleCard({
               {rule.isActive ? "Pause" : "Resume"}
             </SubmitButton>
           </form>
-          <form action={deleteRule}>
-            <input type="hidden" name="ruleId" value={rule.id} />
-            <SubmitButton className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 dark:border-rose-900 dark:text-rose-400 dark:hover:bg-rose-950">
-              Delete
-            </SubmitButton>
-          </form>
+          {/* A divider keeps the destructive action visibly apart from
+              Pause (issue #12); Delete itself asks for confirmation. */}
+          <span aria-hidden className="h-5 w-px bg-zinc-200 dark:bg-zinc-800" />
+          <DeleteRuleButton ruleId={rule.id} name={rule.name} isActive={rule.isActive} />
         </div>
       </div>
 
