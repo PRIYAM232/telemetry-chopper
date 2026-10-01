@@ -1,6 +1,6 @@
 # Feature 8: Safe rule delete (confirm and undo)
 
-**Status:** Shipped, 2026-10-01 · **PR:** _pending_ · **Issue:** [#12](https://github.com/PRIYAM232/telemetry-chopper/issues/12)
+**Status:** Shipped, 2026-10-01 · **PR:** [#42](https://github.com/PRIYAM232/telemetry-chopper/pull/42) · **Issue:** [#12](https://github.com/PRIYAM232/telemetry-chopper/issues/12)
 
 ## Summary
 
