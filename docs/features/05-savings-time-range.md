@@ -1,6 +1,6 @@
 # Feature 5: Savings time range
 
-**Status:** Shipped, 2026-09-30 · **PR:** _pending_ · **Issue:** [#15](https://github.com/PRIYAM232/telemetry-chopper/issues/15)
+**Status:** Shipped, 2026-09-30 · **PR:** [#39](https://github.com/PRIYAM232/telemetry-chopper/pull/39) · **Issue:** [#15](https://github.com/PRIYAM232/telemetry-chopper/issues/15)
 
 ## Summary
 
