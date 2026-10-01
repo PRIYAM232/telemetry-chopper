@@ -175,7 +175,7 @@ Each save is picked up on the proxy's next policy poll (`sync_interval: 5s`):
 docker logs -f chopper-sbx-otelcol 2>&1 | grep --line-buffered 'ruleset updated'
 ```
 
-`rules_total` should climb 3 → 7 and `rules_ignored` should stay `0`. In the reference run, the time from clicking **Create rule** to enforcement was about 2.5s.
+`rules_total` should climb 3 → 7, and `rules_invalid` and `rules_unsupported` should stay `0`. In the reference run, the time from clicking **Create rule** to enforcement was about 2.5s.
 
 ## 5. Verify the stream changed, without a restart
 
@@ -246,7 +246,7 @@ How these behave:
 `rules_total` should climb 7 → 11, ending at:
 
 ```text
-"rules_total": 11, "rules_enforced_traces": 5, "rules_enforced_logs": 5, "rules_enforced_metrics": 1, "rules_ignored": 0
+"rules_total": 11, "rules_enforced_traces": 5, "rules_enforced_logs": 5, "rules_enforced_metrics": 1, "rules_paused": 0, "rules_invalid": 0, "rules_unsupported": 0
 ```
 
 Wait about 70s before checking. The queries below use 1-minute windows because traces arrive at only 1/s per tenant. Paste them into **http://localhost:9090/query**.
@@ -350,6 +350,6 @@ docker compose down -v
 |---|---|
 | `Bind for 0.0.0.0:4317 failed: port is already allocated` | Another stack owns the port. See step 0. |
 | Dashboard says **No heartbeat yet** | The proxy isn't running: `docker logs chopper-sbx-otelcol`. |
-| Rule saved but nothing changes | Check the `ruleset updated` line. `rules_ignored > 0` means a rule can't be enforced (e.g. REDACT on METRICS, or SAMPLE on LOGS). The dashboard rejects a regex Go's RE2 can't compile (lookarounds, backreferences); a rule stored some other way shows an **invalid regex · not enforced** badge, and the collector logs `REGEX_MATCH pattern does not compile` and fails open. |
+| Rule saved but nothing changes | Check the `ruleset updated` line. `rules_paused` counts rules you turned off. `rules_invalid` or `rules_unsupported` above 0 means a rule can't be enforced, and a `rule not enforced` warning just before names it and gives the reason (e.g. `action_not_supported_for_signal` for REDACT on METRICS or SAMPLE on LOGS). The dashboard rejects a regex Go's RE2 can't compile (lookarounds, backreferences); a rule stored some other way shows an **invalid regex · not enforced** badge, and the collector logs `REGEX_MATCH pattern does not compile` and fails open. |
 | ROUTE rule enforced but the data still reaches the backend | The destination must exactly match a value in the collector's routing tables. This sandbox only wires `cold-storage` (the `routing/*` connectors in `otelcol-sandbox.yaml`); any other value falls through to the default hot pipeline. |
 | `sandbox_backend_*` graphs empty | The mock backend only exposes a series after its first log arrives. Check `docker logs chopper-sbx-loadgen` for `export_errors`. |

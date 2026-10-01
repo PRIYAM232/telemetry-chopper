@@ -68,6 +68,12 @@ type compiledRule struct {
 	// immutable-by-convention.
 	limiters *limiterGroup
 
+	// state and stateReason are the rule's enforcement status (status.go),
+	// classified once here so the sync log, the rule_status gauge and the
+	// sync warnings all agree.
+	state       string
+	stateReason string
+
 	// stats is the rule's per-rule tally (rulestats.go). Never nil:
 	// compileRules allocates it and the engine swaps in the rule's
 	// long-lived counters by ID before publishing the ruleset.
@@ -88,12 +94,10 @@ func compileRules(rules []PolicyRule, logger *zap.Logger) []compiledRule {
 		// hot paths only ever read the pointer. A rule whose rate is missing
 		// or non-positive gets no group and is skipped at evaluation time.
 		if rules[i].ActionType == ActionThrottle {
+			// A missing rate is reported by the sync's per-rule "not
+			// enforced" warning (status.go), like every other invalid rule.
 			if rules[i].ThrottleRate != nil && *rules[i].ThrottleRate > 0 {
 				compiled[i].limiters = newLimiterGroup(*rules[i].ThrottleRate)
-			} else {
-				logger.Warn("chopper_filter: THROTTLE rule has no positive rate, rule will not be enforced",
-					zap.String("rule", rules[i].Name),
-				)
 			}
 		}
 
@@ -110,6 +114,9 @@ func compileRules(rules []PolicyRule, logger *zap.Logger) []compiledRule {
 			continue
 		}
 		compiled[i].regex = re
+	}
+	for i := range compiled {
+		compiled[i].state, compiled[i].stateReason = ruleStatus(&compiled[i])
 	}
 	return compiled
 }

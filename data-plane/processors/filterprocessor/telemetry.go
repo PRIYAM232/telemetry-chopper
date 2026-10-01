@@ -34,14 +34,15 @@ type engineTelemetry struct {
 	metricsDropped  metric.Int64Counter
 }
 
-// newEngineTelemetry registers the chopper_filter instruments. rulesTotal is
-// observed at scrape time (an async gauge), so the rule count is always
-// current even though rulesets swap wholesale between scrapes. eachRule
+// newEngineTelemetry registers the chopper_filter instruments. currentRules
+// is read at scrape time (async gauges), so the rule count and each rule's
+// enforcement status are always current even though rulesets swap wholesale
+// between scrapes. eachRule
 // walks the per-rule counters for the rule_matched / rule_dropped
 // observable counters: observed at scrape time from the cumulative atomics,
 // so the hot paths never touch an attribute set. Cardinality is bounded by
 // the ruleset size.
-func newEngineTelemetry(ts component.TelemetrySettings, rulesTotal func() int64, eachRule func(func(*ruleCounters))) (*engineTelemetry, error) {
+func newEngineTelemetry(ts component.TelemetrySettings, currentRules func() []compiledRule, eachRule func(func(*ruleCounters))) (*engineTelemetry, error) {
 	// The collector service always injects a MeterProvider; tests building
 	// processor.Settings by hand may not. nil provider → self-metrics off,
 	// mirroring the nil-telemetry tolerance in the engine's observe helpers.
@@ -75,7 +76,34 @@ func newEngineTelemetry(ts component.TelemetrySettings, rulesTotal func() int64,
 		metric.WithDescription("Rules in the currently synced chopper_filter ruleset (0 until the first successful policy sync)."),
 		metric.WithUnit("{rules}"),
 		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
-			o.Observe(rulesTotal())
+			o.Observe(int64(len(currentRules())))
+			return nil
+		}),
+	)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	// One series per synced rule, value 1, labelled with its enforcement
+	// state (issue #13). Paused rules carry state="paused", so the alert
+	// "a rule exists that is not being enforced" is simply
+	// otelcol_chopper_filter_rule_status{state=~"invalid|unsupported"}.
+	_, err = meter.Int64ObservableGauge("otelcol_chopper_filter_rule_status",
+		metric.WithDescription("1 per synced chopper_filter rule, labelled with its enforcement state (enforced, paused, invalid, unsupported) and, when not enforced, the reason."),
+		metric.WithUnit("{rules}"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			rules := currentRules()
+			for i := range rules {
+				r := &rules[i]
+				o.Observe(1, metric.WithAttributes(
+					attribute.String("rule_id", r.ID),
+					attribute.String("rule_name", r.Name),
+					attribute.String("signal", r.TargetSignal),
+					attribute.String("action", r.ActionType),
+					attribute.String("state", r.state),
+					attribute.String("reason", r.stateReason),
+				))
+			}
 			return nil
 		}),
 	)
