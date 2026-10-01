@@ -17,6 +17,8 @@ Telemetry Chopper fixes this at the edge. It's a smart OpenTelemetry firewall th
 - 🛡️ **Protect downstream systems** — per-tenant rate limits stop log floods and noisy neighbors.
 - ⚡ **Change rules live** — policies propagate to the data plane in seconds, no redeploys.
 
+📖 **[Read the documentation](docs/README.md)** for rule guides, savings setup and monitoring.
+
 ---
 
 ## Architecture
@@ -66,7 +68,7 @@ Every rule targets a signal (traces, logs, or metrics), matches on attributes or
 | **REDACT** | Masks only the matched substrings via zero-allocation regex — the rest of the payload passes through untouched. | SSNs, credit-card numbers, bearer tokens, emails — scrubbed before data leaves your network. |
 | **ROUTE** | Never drops; stamps the matching telemetry's resource with a routing destination that forks it into a different pipeline (e.g. `traces/in` → `traces/hot` or `traces/cold`). | Send audit logs to cheap cold storage while errors go to your hot APM backend ([how](#routing-to-hot-and-cold-backends)). |
 | **THROTTLE** | Token-bucket rate limiting (events/sec), isolated per tenant by an attribute key of your choice — one bucket per attribute *value*. | Cap each `tenant.id` at 100 logs/sec so one runaway customer can't flood the pipeline for everyone. |
-| **EXCLUDE_INDEX** | Never drops; stamps matching spans or log records with `chopper.index=false` so your vendor's index exclusion filter keeps them out of the paid search index while they're still ingested. | Keep INFO logs flowing to live tail and archives without paying to index them ([details](docs/features/03-split-ingest-indexing.md)). |
+| **EXCLUDE_INDEX** | Never drops; stamps matching spans or log records with `chopper.index=false` so your vendor's index exclusion filter keeps them out of the paid search index while they're still ingested. | Keep INFO logs flowing to live tail and archives without paying to index them ([details](docs/rules/exclude-from-index.md)). |
 
 Malformed rules (e.g. a SAMPLE without a rate) are skipped, not fatal — the data plane always fails open rather than blocking telemetry.
 
@@ -191,15 +193,15 @@ In the dashboard, create a **DROP** rule for the dev fleet (for example: traces 
 
 ### 5. Watch the savings
 
-The collector reports match/drop statistics back to the Control Plane every 10 seconds. The dashboard's telemetry view shows exactly what each rule is catching — that's your cost reduction, live, without touching a single YAML file or restarting a single process. The savings cards cover the last 24 hours by default; switch between **1h**, **24h**, **7d** and **All time** above them. Each rule card shows what that rule matched, dropped and saved in the same window, and flags a rule whose condition never matches live traffic (usually a typo in the field name).
+The collector reports match/drop statistics back to the Control Plane every 10 seconds. The dashboard shows what your rules drop and what that saves, live, without touching a single YAML file or restarting a single process. Each rule card shows what that rule matched, dropped and saved.
 
-The dollar figure comes from the bytes your rules dropped, measured by the collector per signal, multiplied by your vendor's per-GB price. To use your contract's rates instead of the default $0.10/GB, open **Pricing** in the dashboard header (`/settings/pricing`), pick your vendor (Datadog, Splunk, New Relic or Custom) and enter your negotiated price per GB for logs, traces and metrics.
+Savings are priced at $0.10/GB until you enter your own rates. To match your bill:
 
-If your contract has a committed monthly volume with an overage penalty, add it on the same page under **Volume commitment**: committed GB per month, the overage multiplier (for example 1.5 for 150%) and the day your billing cycle starts. The dashboard's **This billing period** section then tracks billable volume (what the collectors actually forwarded) against the commitment, shows when you crossed it or when you're on pace to, and splits savings into standard volume savings (dropped GB at your rate card) and overage penalty avoided (the extra premium on the GB your rules kept out of the overage tier).
+- [Configure vendor pricing](docs/savings/configure-vendor-pricing.md): your negotiated ingest and indexing prices for Datadog, Splunk, New Relic or a custom vendor.
+- [Track a committed volume](docs/savings/track-committed-volume.md): see where you stand against your monthly commitment and the overage penalties your rules prevented.
+- [Include cloud egress savings](docs/savings/include-cloud-egress.md): add your cloud provider's data transfer fees.
 
-If your collectors send telemetry out of their cloud network to reach the vendor, turn on **Cloud egress** on the same page (default $0.09/GB, with a wire compression ratio) to add the provider's egress fee on every dropped GB. The headline then becomes **Total infrastructure & ingest savings**, and the **Savings breakdown** widget splits it into vendor ingest, vendor indexing and cloud egress.
-
-How these figures are measured and calculated, plus every feature added since launch, is documented in the [feature log](docs/features/README.md).
+See [Measure observability savings](docs/savings/README.md) for a tour of the dashboard.
 
 > **Shipping to a real backend:** the packaged dev pipeline terminates in the `debug` exporter so you can see everything working. The distribution also ships the `otlp_grpc` and `otlp_http` exporters, so any OTLP endpoint (Jaeger, Tempo, Prometheus, Grafana Cloud, vendor OTLP intakes) is a config change in your collector's `hot`/`cold` pipelines — see [`deploy/sandbox/otelcol-sandbox.yaml`](deploy/sandbox/otelcol-sandbox.yaml). For archives, it also ships the `awss3`, `azure_blob` and `file` exporters — see [Archiving to cold storage](#archiving-to-cold-storage). For vendor-specific exporters, add them to [`data-plane/builder-config.yaml`](data-plane/builder-config.yaml) and rebuild with `make build`.
 >
