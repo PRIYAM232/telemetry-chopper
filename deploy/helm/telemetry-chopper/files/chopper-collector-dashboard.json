@@ -303,7 +303,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
-      "description": "Synced rules whose condition matched nothing in the last hour across all pods. Usually a typo in the condition field or value, or a source that stopped sending. Rules for a signal with no traffic count too.",
+      "description": "Enforced rules whose condition matched nothing in the last hour across all pods. Usually a typo in the condition field or value, or a source that stopped sending. Rules for a signal with no traffic count too; paused and not-enforced rules don't.",
       "fieldConfig": {
         "defaults": {
           "unit": "none",
@@ -328,13 +328,76 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "${datasource}" },
-          "expr": "count(sum by (rule_id) (increase(otelcol_chopper_filter_rule_matched{pod=~\"$pod\"}[1h])) == 0) or vector(0)",
+          "expr": "count((sum by (rule_id) (increase(otelcol_chopper_filter_rule_matched{pod=~\"$pod\"}[1h])) == 0) and on (rule_id) max by (rule_id) (otelcol_chopper_filter_rule_status{pod=~\"$pod\", state=\"enforced\"})) or vector(0)",
           "legendFormat": "rules",
           "refId": "A"
         }
       ],
       "title": "Rules matching nothing (1h)",
       "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Active rules the collector cannot enforce: invalid (bad regex, or a SAMPLE / ROUTE / THROTTLE rule missing its parameter) or unsupported (action not implemented for the signal). Paused rules are not counted. Alert on this being non-zero.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 34 },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "count(max by (rule_id) (otelcol_chopper_filter_rule_status{pod=~\"$pod\", state=~\"invalid|unsupported\"})) or vector(0)",
+          "legendFormat": "rules",
+          "refId": "A"
+        }
+      ],
+      "title": "Rules not enforced",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Every active rule the collector is not enforcing, and why. Fix invalid rules in the dashboard; unsupported ones need a different action or signal (or a newer collector).",
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 34 },
+      "id": 11,
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "max by (rule_name, rule_id, signal, action, state, reason) (otelcol_chopper_filter_rule_status{pod=~\"$pod\", state=~\"invalid|unsupported\"})",
+          "format": "table",
+          "instant": true,
+          "refId": "A"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true, "Value": true },
+            "indexByName": { "rule_name": 0, "signal": 1, "action": 2, "state": 3, "reason": 4, "rule_id": 5 }
+          }
+        }
+      ],
+      "title": "Rules not enforced",
+      "type": "table"
     }
   ],
   "refresh": "30s",

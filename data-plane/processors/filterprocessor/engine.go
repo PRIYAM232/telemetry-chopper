@@ -369,25 +369,43 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 	e.lastRulesHash = hash
 	e.rulesMu.Unlock()
 
-	enforcedTraces, enforcedLogs, enforcedMetrics := 0, 0, 0
+	// Paused rules are intentional and counted on their own; invalid and
+	// unsupported rules are defects, each named in a warning so the log says
+	// WHICH rule isn't running and why (issue #13).
+	enforced := map[string]int{}
+	paused, invalid, unsupported := 0, 0, 0
 	for i := range compiled {
-		if ruleAppliesTraces(&compiled[i]) {
-			enforcedTraces++
-		}
-		if ruleAppliesLogs(&compiled[i]) {
-			enforcedLogs++
-		}
-		if ruleAppliesMetrics(&compiled[i]) {
-			enforcedMetrics++
+		r := &compiled[i]
+		switch r.state {
+		case ruleStateEnforced:
+			enforced[r.TargetSignal]++
+		case ruleStatePaused:
+			paused++
+		default:
+			if r.state == ruleStateInvalid {
+				invalid++
+			} else {
+				unsupported++
+			}
+			e.logger.Warn("chopper_filter policy sync: rule not enforced",
+				zap.String("rule", r.Name),
+				zap.String("rule_id", r.ID),
+				zap.String("signal", r.TargetSignal),
+				zap.String("action", r.ActionType),
+				zap.String("state", r.state),
+				zap.String("reason", r.stateReason),
+			)
 		}
 	}
 	e.logger.Info("chopper_filter policy sync: ruleset updated",
 		zap.String("fleet_id", payload.FleetID),
 		zap.Int("rules_total", len(compiled)),
-		zap.Int("rules_enforced_traces", enforcedTraces),
-		zap.Int("rules_enforced_logs", enforcedLogs),
-		zap.Int("rules_enforced_metrics", enforcedMetrics),
-		zap.Int("rules_ignored", len(compiled)-enforcedTraces-enforcedLogs-enforcedMetrics),
+		zap.Int("rules_enforced_traces", enforced[SignalTraces]),
+		zap.Int("rules_enforced_logs", enforced[SignalLogs]),
+		zap.Int("rules_enforced_metrics", enforced[SignalMetrics]),
+		zap.Int("rules_paused", paused),
+		zap.Int("rules_invalid", invalid),
+		zap.Int("rules_unsupported", unsupported),
 	)
 }
 
