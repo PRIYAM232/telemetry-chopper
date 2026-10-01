@@ -1,4 +1,4 @@
-// The dashboard's savings breakdown: all-time savings split by what each
+// The dashboard's savings breakdown: savings for the selected window split by what each
 // dollar pays for — vendor ingest (bytes the vendor never received), vendor
 // indexing (events the vendor never indexed) and, when enabled, cloud egress
 // (bytes that never left the network) — as a proportional bar with direct
@@ -38,11 +38,13 @@ export function SavingsBreakdown({
   rateCard,
   egress,
   egressConfig,
+  windowLabel,
 }: {
   savings: Savings;
   rateCard: RateCard;
   egress: EgressSavings;
   egressConfig: EgressConfig;
+  windowLabel: string;
 }) {
   const indexingPriced =
     rateCard.tracesIndexPricePerMillion > 0 || rateCard.logsIndexPricePerMillion > 0;
@@ -93,7 +95,7 @@ export function SavingsBreakdown({
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
           Savings breakdown
-          <span className="ml-2 font-normal text-zinc-500 dark:text-zinc-400">all time</span>
+          <span className="ml-2 font-normal text-zinc-500 dark:text-zinc-400">{windowLabel}</span>
         </h2>
         <p className="text-sm tabular-nums text-zinc-500 dark:text-zinc-400">
           {egress.enabled && (

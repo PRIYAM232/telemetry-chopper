@@ -14,9 +14,11 @@ import { formatUSD } from "@/lib/format";
 import { computeSavings, getRateCard, rateCardLabel } from "@/lib/pricing";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
+import { parseTimeRange, rangeLabel, rangeStart } from "@/lib/time-range";
 import { deleteRule, toggleRuleActive } from "./actions";
 import { AutoRefresh } from "./auto-refresh";
 import { BillingPeriodSection } from "./billing-period";
+import { RangePicker } from "./range-picker";
 import { SavingsBreakdown } from "./savings-breakdown";
 import { CreateRuleForm } from "./create-rule-form";
 import { SubmitButton } from "./pending";
@@ -40,7 +42,12 @@ const dateFmt = new Intl.DateTimeFormat("en-US", {
   minute: "2-digit",
 });
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ range?: string | string[] }>;
+}) {
+  const range = parseTimeRange((await searchParams).range);
   const fleet = await prisma.collectorFleet.findFirst({
     orderBy: { createdAt: "asc" },
     include: { rules: { orderBy: { createdAt: "asc" } } },
@@ -64,9 +71,21 @@ export default async function DashboardPage() {
     );
   }
 
+  // This server component is force-dynamic: each render is one request, so
+  // request-time "now" is stable for the lifetime of the response and the
+  // AutoRefresh island re-requests every 10s to keep the age and the
+  // trailing savings window honest.
+  // eslint-disable-next-line react-hooks/purity
+  const nowMs = Date.now();
+  const since = rangeStart(range, nowMs);
+  const windowLabel = rangeLabel(range);
+  // Banner and breakdown sum heartbeats inside the selected window only, so
+  // the reduction reflects the current ruleset rather than all history.
+  const inWindow = since === null ? {} : { createdAt: { gte: since } };
+
   const [totals, unsized, lastMetric, rateCard, egressConfig] = await Promise.all([
     prisma.fleetMetric.aggregate({
-      where: { fleetId: fleet.id },
+      where: { fleetId: fleet.id, ...inWindow },
       _sum: {
         tracesReceived: true,
         tracesDropped: true,
@@ -86,6 +105,7 @@ export default async function DashboardPage() {
     prisma.fleetMetric.aggregate({
       where: {
         fleetId: fleet.id,
+        ...inWindow,
         tracesDroppedBytes: 0,
         logsDroppedBytes: 0,
         metricsDroppedBytes: 0,
@@ -137,11 +157,6 @@ export default async function DashboardPage() {
     (unsized._sum.logsDropped ?? 0) +
     (unsized._sum.metricsDropped ?? 0);
 
-  // This server component is force-dynamic: each render is one request, so
-  // request-time "now" is stable for the lifetime of the response and the
-  // AutoRefresh island re-requests every 10s to keep the age honest.
-  // eslint-disable-next-line react-hooks/purity
-  const nowMs = Date.now();
   const heartbeatAgeMs = lastMetric
     ? nowMs - lastMetric.createdAt.getTime()
     : null;
@@ -196,11 +211,19 @@ export default async function DashboardPage() {
       </header>
 
       {/* Metric banner */}
-      <section aria-label="Fleet savings" className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm text-zinc-500 dark:text-zinc-400">
+          Savings over {range === "all" ? "" : "the "}
+          <span className="font-medium text-zinc-900 dark:text-zinc-100">{windowLabel}</span>
+          {received === 0 && lastMetric !== null && " · no heartbeats in this window"}
+        </h2>
+        <RangePicker range={range} />
+      </div>
+      <section aria-label="Fleet savings" className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Telemetry processed"
           value={integerFmt.format(received)}
-          hint={`${integerFmt.format(tracesReceived)} spans · ${integerFmt.format(logsReceived)} logs · ${integerFmt.format(metricsReceived)} metrics, all time`}
+          hint={`${integerFmt.format(tracesReceived)} spans · ${integerFmt.format(logsReceived)} logs · ${integerFmt.format(metricsReceived)} metrics, ${windowLabel}`}
         />
         <StatCard
           label="Telemetry dropped"
@@ -211,7 +234,7 @@ export default async function DashboardPage() {
         <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
           <p className="text-sm text-zinc-500 dark:text-zinc-400">Data reduction</p>
           <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">
-            {reductionPct.toFixed(1)}%
+            {received > 0 ? `${reductionPct.toFixed(1)}%` : "—"}
           </p>
           <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
             <div
@@ -230,7 +253,7 @@ export default async function DashboardPage() {
           <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
             Vendor ingest + indexing at {rateCardLabel(rateCard)}{" "}
             {rateCard.vendor === null ? `$${rateCard.logsPricePerGb.toFixed(2)}/GB` : "rate card"}
-            {egress.enabled && ` + cloud egress at $${egressConfig.pricePerGb}/GB`}, all time ·{" "}
+            {egress.enabled && ` + cloud egress at $${egressConfig.pricePerGb}/GB`}, {windowLabel} ·{" "}
             <Link
               href="/settings/pricing"
               className="underline decoration-zinc-300 underline-offset-2 hover:text-zinc-700 dark:decoration-zinc-700 dark:hover:text-zinc-300"
@@ -243,7 +266,7 @@ export default async function DashboardPage() {
               className="mt-1 text-xs text-amber-600 dark:text-amber-400"
               title="These heartbeats came from collectors that report drop counts but not bytes. Upgrade the collectors to price their drops."
             >
-              {integerFmt.format(unsizedDrops)} earlier drops unpriced (no byte data)
+              {integerFmt.format(unsizedDrops)} drops unpriced (no byte data)
             </p>
           )}
         </div>
@@ -254,6 +277,7 @@ export default async function DashboardPage() {
         rateCard={rateCard}
         egress={egress}
         egressConfig={egressConfig}
+        windowLabel={windowLabel}
       />
 
       <BillingPeriodSection fleetId={fleet.id} rateCard={rateCard} nowMs={nowMs} />
