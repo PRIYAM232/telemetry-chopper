@@ -1,6 +1,6 @@
 # Feature 6: Per-rule match and drop counts
 
-**Status:** Shipped, 2026-10-01 · **PR:** _pending_ · **Issue:** [#14](https://github.com/PRIYAM232/telemetry-chopper/issues/14)
+**Status:** Shipped, 2026-10-01 · **PR:** [#40](https://github.com/PRIYAM232/telemetry-chopper/pull/40) · **Issue:** [#14](https://github.com/PRIYAM232/telemetry-chopper/issues/14)
 
 ## Summary
 
