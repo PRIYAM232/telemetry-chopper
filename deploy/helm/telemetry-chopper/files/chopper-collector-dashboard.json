@@ -272,6 +272,69 @@
       ],
       "title": "OTLP receiver refusals /s",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Telemetry removed per chopper_filter rule (top 10 by rate): which rule is doing the work. Summed across pods; a THROTTLE rule only shows its excess over the limit.",
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 10, "lineWidth": 2, "showPoints": "never" },
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 18, "x": 0, "y": 26 },
+      "id": 8,
+      "options": {
+        "legend": { "calcs": ["mean", "max"], "displayMode": "table", "placement": "right" },
+        "tooltip": { "mode": "multi", "sort": "desc" }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "topk(10, sum by (rule_name, signal, action) (rate(otelcol_chopper_filter_rule_dropped{pod=~\"$pod\"}[$__rate_interval])))",
+          "legendFormat": "{{rule_name}} ({{action}} {{signal}})",
+          "refId": "A"
+        }
+      ],
+      "title": "Dropped by rule /s (top 10)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "description": "Synced rules whose condition matched nothing in the last hour across all pods. Usually a typo in the condition field or value, or a source that stopped sending. Rules for a signal with no traffic count too.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 26 },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+      },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "${datasource}" },
+          "expr": "count(sum by (rule_id) (increase(otelcol_chopper_filter_rule_matched{pod=~\"$pod\"}[1h])) == 0) or vector(0)",
+          "legendFormat": "rules",
+          "refId": "A"
+        }
+      ],
+      "title": "Rules matching nothing (1h)",
+      "type": "stat"
     }
   ],
   "refresh": "30s",

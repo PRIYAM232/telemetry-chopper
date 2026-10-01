@@ -17,8 +17,17 @@
 //     "metrics_dropped_bytes": int64,
 //     "traces_forwarded_bytes": int64, "logs_forwarded_bytes": int64,
 //     "metrics_forwarded_bytes": int64,
-//     "traces_unindexed": int64, "logs_unindexed": int64
+//     "traces_unindexed": int64, "logs_unindexed": int64,
+//     "rules": [ { "rule_id": uuid, "matched": int64, "dropped": int64,
+//                  "dropped_bytes": int64, "unindexed": int64 }, ... ]
 //   }
+//
+// "rules" (issue #14) attributes the interval to individual rules; the
+// collector sends only rules with activity and omits the key when none had
+// any. Each entry becomes a RuleMetric row in the same transaction as the
+// FleetMetric row. Entries for rules this fleet doesn't own — typically a rule
+// deleted between the collector's last sync and this report — are skipped,
+// not rejected, so a routine race can't wedge the heartbeat in a 400 loop.
 //
 // Phase-4 collectors still in the field send { "received", "dropped" }; those
 // are accepted and recorded as trace counts so a fleet can upgrade its
@@ -65,6 +74,44 @@ function asBytes(value: unknown): bigint | null {
     return null;
   }
   return BigInt(Math.min(value, Number.MAX_SAFE_INTEGER));
+}
+
+// Postgres rejects a malformed UUID with an error, not a non-match; filter
+// them out up front like any other unknown rule ID.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// A ruleset is bounded by what the policy endpoint serves (4 MiB on the
+// collector side); anything past this is not a real collector.
+const MAX_RULE_ENTRIES = 10_000;
+
+type RuleEntry = {
+  ruleId: string;
+  matched: number;
+  dropped: number;
+  droppedBytes: bigint;
+  unindexed: number;
+};
+
+// Parses the optional "rules" array. Returns null when it is present but
+// malformed (a client bug, so a 400 like any other bad count).
+function parseRuleEntries(value: unknown): RuleEntry[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > MAX_RULE_ENTRIES) return null;
+  const entries: RuleEntry[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "object" || raw === null) return null;
+    const e = raw as Record<string, unknown>;
+    if (typeof e.rule_id !== "string") return null;
+    const matched = asCount(e.matched);
+    const dropped = asCount(e.dropped);
+    const unindexed = asCount(e.unindexed);
+    const droppedBytes = asBytes(e.dropped_bytes);
+    if (matched === null || dropped === null || unindexed === null || droppedBytes === null) {
+      return null;
+    }
+    entries.push({ ruleId: e.rule_id, matched, dropped, droppedBytes, unindexed });
+  }
+  return entries;
 }
 
 export async function POST(
@@ -125,7 +172,33 @@ export async function POST(
     );
   }
 
-  await prisma.fleetMetric.create({
+  const ruleEntries = parseRuleEntries(payload.rules);
+  if (ruleEntries === null) {
+    return NextResponse.json(
+      { error: "rules must be an array of { rule_id, matched, dropped, dropped_bytes, unindexed } with non-negative integer counts" },
+      { status: 400 },
+    );
+  }
+
+  // Keep only rules this fleet owns. Scoping by fleet also stops one
+  // fleet's key from writing stats against another fleet's rules.
+  const candidateIds = [...new Set(ruleEntries.map((e) => e.ruleId).filter((id) => UUID_RE.test(id)))];
+  const owned =
+    candidateIds.length === 0
+      ? new Set<string>()
+      : new Set(
+          (
+            await prisma.policyRule.findMany({
+              where: { fleetId: auth.fleetId, id: { in: candidateIds } },
+              select: { id: true },
+            })
+          ).map((r) => r.id),
+        );
+  const ruleRows = ruleEntries
+    .filter((e) => owned.has(e.ruleId))
+    .map((e) => ({ fleetId: auth.fleetId, ...e }));
+
+  const fleetRow = prisma.fleetMetric.create({
     data: {
       fleetId: auth.fleetId,
       tracesReceived,
@@ -144,6 +217,9 @@ export async function POST(
       metricsForwardedBytes,
     },
   });
+  await (ruleRows.length > 0
+    ? prisma.$transaction([fleetRow, prisma.ruleMetric.createMany({ data: ruleRows })])
+    : fleetRow);
 
   return new NextResponse(null, { status: 204 });
 }

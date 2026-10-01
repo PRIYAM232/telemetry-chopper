@@ -191,7 +191,7 @@ In the dashboard, create a **DROP** rule for the dev fleet (for example: traces 
 
 ### 5. Watch the savings
 
-The collector reports match/drop statistics back to the Control Plane every 10 seconds. The dashboard's telemetry view shows exactly what each rule is catching — that's your cost reduction, live, without touching a single YAML file or restarting a single process. The savings cards cover the last 24 hours by default; switch between **1h**, **24h**, **7d** and **All time** above them.
+The collector reports match/drop statistics back to the Control Plane every 10 seconds. The dashboard's telemetry view shows exactly what each rule is catching — that's your cost reduction, live, without touching a single YAML file or restarting a single process. The savings cards cover the last 24 hours by default; switch between **1h**, **24h**, **7d** and **All time** above them. Each rule card shows what that rule matched, dropped and saved in the same window, and flags a rule whose condition never matches live traffic (usually a typo in the field name).
 
 The dollar figure comes from the bytes your rules dropped, measured by the collector per signal, multiplied by your vendor's per-GB price. To use your contract's rates instead of the default $0.10/GB, open **Pricing** in the dashboard header (`/settings/pricing`), pick your vendor (Datadog, Splunk, New Relic or Custom) and enter your negotiated price per GB for logs, traces and metrics.
 

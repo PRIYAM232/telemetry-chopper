@@ -126,10 +126,13 @@ func (p *metricsProcessor) applyRules(rules []compiledRule, md pmetric.Metrics) 
 		resAttrs := rm.Resource().Attributes()
 		rm.ScopeMetrics().RemoveIf(func(sm pmetric.ScopeMetrics) bool {
 			sm.Metrics().RemoveIf(func(metric pmetric.Metric) bool {
-				if !p.evaluateMetric(rules, metric, resAttrs) {
+				dropBy := p.evaluateMetric(rules, metric, resAttrs)
+				if dropBy == nil {
 					return false
 				}
-				droppedBytes += int64(sizer.MetricSize(metric))
+				size := int64(sizer.MetricSize(metric))
+				droppedBytes += size
+				dropBy.stats.countDrop(size)
 				return true
 			})
 			return sm.Metrics().Len() == 0
@@ -139,11 +142,12 @@ func (p *metricsProcessor) applyRules(rules []compiledRule, md pmetric.Metrics) 
 	return droppedBytes
 }
 
-// evaluateMetric runs every enforced rule against one metric and reports
-// whether the metric should be dropped. ROUTE rules stamp the enclosing
+// evaluateMetric runs every enforced rule against one metric and returns the
+// rule that dropped it, or nil if it survives. Every rule whose condition
+// matches counts the match. ROUTE rules stamp the enclosing
 // resource as a side effect but never drop; a ROUTE tag does not shield the
 // metric from a later DROP rule.
-func (p *metricsProcessor) evaluateMetric(rules []compiledRule, metric pmetric.Metric, resAttrs pcommon.Map) bool {
+func (p *metricsProcessor) evaluateMetric(rules []compiledRule, metric pmetric.Metric, resAttrs pcommon.Map) *compiledRule {
 	for i := range rules {
 		rule := &rules[i]
 		if !ruleAppliesMetrics(rule) {
@@ -152,6 +156,7 @@ func (p *metricsProcessor) evaluateMetric(rules []compiledRule, metric pmetric.M
 		if !metricConditionMatches(rule, metric, resAttrs) {
 			continue
 		}
+		rule.stats.countMatch()
 
 		switch rule.ActionType {
 		case ActionDrop:
@@ -159,7 +164,7 @@ func (p *metricsProcessor) evaluateMetric(rules []compiledRule, metric pmetric.M
 				zap.String("rule", rule.Name),
 				zap.String("metric_name", metric.Name()),
 			)
-			return true
+			return rule
 		case ActionRoute:
 			// Stamp the RESOURCE, not the metric: the routing connector
 			// matches at resource granularity (see attrRoutingDestination).
@@ -181,12 +186,12 @@ func (p *metricsProcessor) evaluateMetric(rules []compiledRule, metric pmetric.M
 					zap.String("rule", rule.Name),
 					zap.String("metric_name", metric.Name()),
 				)
-				return true
+				return rule
 			}
 			// Under the rate; later rules may still drop the metric.
 		}
 	}
-	return false
+	return nil
 }
 
 // metricConditionMatches resolves the rule's condition field on a metric and

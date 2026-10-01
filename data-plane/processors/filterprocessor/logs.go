@@ -127,14 +127,17 @@ func (p *logsProcessor) applyRules(rules []compiledRule, ld plog.Logs) (droppedB
 		resAttrs := rl.Resource().Attributes()
 		rl.ScopeLogs().RemoveIf(func(sl plog.ScopeLogs) bool {
 			sl.LogRecords().RemoveIf(func(lr plog.LogRecord) bool {
-				drop, excluded := p.evaluateLogRecord(rules, lr, resAttrs)
-				if !drop {
-					if excluded {
+				dropBy, excludedBy := p.evaluateLogRecord(rules, lr, resAttrs)
+				if dropBy == nil {
+					if excludedBy != nil {
 						unindexed++
+						excludedBy.stats.unindexed.Add(1)
 					}
 					return false
 				}
-				droppedBytes += int64(sizer.LogRecordSize(lr))
+				size := int64(sizer.LogRecordSize(lr))
+				droppedBytes += size
+				dropBy.stats.countDrop(size)
 				return true
 			})
 			return sl.LogRecords().Len() == 0
@@ -145,12 +148,13 @@ func (p *logsProcessor) applyRules(rules []compiledRule, ld plog.Logs) (droppedB
 }
 
 // evaluateLogRecord runs every enforced rule against one log record and
-// reports whether the record should be dropped, and whether an EXCLUDE_INDEX
-// rule opted it out of indexing. REDACT, ROUTE and EXCLUDE_INDEX rules mutate
+// returns the rule that dropped it (nil if it survives) and the first
+// EXCLUDE_INDEX rule that opted it out of indexing (nil if none). Every rule
+// whose condition matches counts the match. REDACT, ROUTE and EXCLUDE_INDEX rules mutate
 // the record (or its resource) as a side effect but never drop it. Rules are
 // independent filters: a record survives only if no rule drops it, so neither
 // a REDACT scrub nor a ROUTE tag shields the record from a later DROP rule.
-func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecord, resAttrs pcommon.Map) (drop, excluded bool) {
+func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecord, resAttrs pcommon.Map) (dropBy, excludedBy *compiledRule) {
 	for i := range rules {
 		rule := &rules[i]
 		if !ruleAppliesLogs(rule) {
@@ -159,6 +163,7 @@ func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecor
 		if !logConditionMatches(rule, lr, resAttrs) {
 			continue
 		}
+		rule.stats.countMatch()
 
 		switch rule.ActionType {
 		case ActionDrop:
@@ -166,7 +171,7 @@ func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecor
 				zap.String("rule", rule.Name),
 				zap.String("severity", lr.SeverityText()),
 			)
-			return true, false
+			return rule, nil
 		case ActionRedact:
 			p.redactLogField(rule, lr, resAttrs)
 			// Record survives with the field scrubbed; later rules may
@@ -192,7 +197,7 @@ func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecor
 					zap.String("rule", rule.Name),
 					zap.String("severity", lr.SeverityText()),
 				)
-				return true, false
+				return rule, nil
 			}
 			// Under the rate; later rules may still drop the record.
 		case ActionExcludeIndex:
@@ -200,10 +205,12 @@ func (p *logsProcessor) evaluateLogRecord(rules []compiledRule, lr plog.LogRecor
 			// index. Later rules may still drop the record, in which case it
 			// counts as dropped, not unindexed.
 			lr.Attributes().PutBool(attrIndexExclude, false)
-			excluded = true
+			if excludedBy == nil {
+				excludedBy = rule
+			}
 		}
 	}
-	return false, excluded
+	return nil, excludedBy
 }
 
 // logConditionMatches resolves the rule's condition field on a log record and
