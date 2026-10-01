@@ -8,6 +8,7 @@ One page per feature added to Telemetry Chopper after the V1 launch: what it doe
 | 2 | [Overage tier modeling](02-overage-tier-model.md): track billable volume against your committed tier and price the overage penalties your rules prevent | Shipped | [#33](https://github.com/PRIYAM232/telemetry-chopper/pull/33) |
 | 3 | [Split-metric pricing](03-split-ingest-indexing.md): ingest $/GB + indexing $/million events, a new EXCLUDE_INDEX action, and an ingest-vs-indexing savings breakdown | Shipped | [#35](https://github.com/PRIYAM232/telemetry-chopper/pull/35) |
 | 4 | [Cloud egress savings](04-cloud-egress.md): add the cloud provider's outbound transfer fee on dropped bytes for a combined infrastructure + ingest total | Shipped | [#36](https://github.com/PRIYAM232/telemetry-chopper/pull/36) |
+| 5 | [Savings time range](05-savings-time-range.md): 1h / 24h / 7d / all-time window for the savings cards, so reduction reflects the current ruleset | Shipped | _pending_ |
 
 ## How the cost features fit together
 
