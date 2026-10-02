@@ -32,6 +32,10 @@ Telemetry Chopper measures the bytes and events your rules keep away from your v
 
 - [Monitor collectors with Prometheus and Grafana](monitoring/README.md): self-metrics, alerts, the Grafana dashboard and the collector's sync log.
 
+## Rehearse a pilot
+
+- [Pilot rehearsal environment](../deploy/pilot/README.md): run Telemetry Chopper as a gateway tier in front of the OpenTelemetry Demo, with Grafana, Tempo, Loki and Prometheus, and follow a test plan.
+
 ## Reference
 
 - [Key concepts](concepts.md): the terms used throughout these docs.

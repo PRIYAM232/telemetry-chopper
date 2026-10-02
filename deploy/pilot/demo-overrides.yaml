@@ -1,0 +1,10 @@
+# Overrides merged onto the OpenTelemetry Demo's compose.yaml. Relative paths
+# resolve from .demo/ (the include's project directory).
+services:
+  # The demo's collector plays the customer's agent tier: it keeps its own
+  # receivers and processing, but exports everything to the Chopper gateway
+  # instead of a backend. Only the extras layer is swapped; the demo's base
+  # config is used unmodified.
+  otel-collector:
+    volumes:
+      - ../agent/otelcol-agent-extras.yaml:/etc/otelcol-config-extras.yml:ro

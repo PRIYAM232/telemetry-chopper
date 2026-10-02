@@ -1,0 +1,69 @@
+# Agent-tier overrides for the OpenTelemetry Demo collector (loaded last, on
+# top of the demo's otelcol-config.yml). Arrays are replaced, not merged.
+#
+# What changes versus the demo defaults:
+#   - Export: everything goes to the Telemetry Chopper gateway tier through
+#     the loadbalancing exporter, the standard pattern for a gateway that
+#     must see whole traces. Traces and logs route by trace ID, so every
+#     span of a trace lands on the same replica and SAMPLE keeps or drops
+#     traces whole; metrics route by resource.
+#   - PII: the demo's own redaction processors are removed from the traces
+#     pipeline, so PII protection is Telemetry Chopper's job in this test
+#     (turn on the demo's emitRawPii flag to generate it).
+
+exporters:
+  loadbalancing/chopper:
+    routing_key: traceID
+    protocol:
+      otlp:
+        tls:
+          insecure: true
+        timeout: 5s
+        sending_queue:
+          enabled: true
+          queue_size: 5000
+        retry_on_failure:
+          enabled: true
+    resolver:
+      # Compose's DNS returns one A record per gateway replica, like a
+      # Kubernetes headless Service. Re-resolved every 5s.
+      dns:
+        hostname: chopper-gateway
+        port: "4317"
+        interval: 5s
+        timeout: 1s
+
+  # Metrics route by resource, not service: infrastructure metrics (host,
+  # Postgres, Redis) carry no service.name and the "service" key rejects them.
+  loadbalancing/chopper-metrics:
+    routing_key: resource
+    protocol:
+      otlp:
+        tls:
+          insecure: true
+        timeout: 5s
+        sending_queue:
+          enabled: true
+          queue_size: 5000
+        retry_on_failure:
+          enabled: true
+    resolver:
+      dns:
+        hostname: chopper-gateway
+        port: "4317"
+        interval: 5s
+        timeout: 1s
+
+service:
+  pipelines:
+    traces:
+      processors: [resource_detection, memory_limiter, transform/sanitize_spans, gen_ai_normalizer]
+      exporters: [loadbalancing/chopper, span_metrics]
+    metrics:
+      receivers: [docker_stats, http_check/frontend-proxy, host_metrics, nginx, otlp, redis, postgresql, prometheus/ad, span_metrics]
+      exporters: [loadbalancing/chopper-metrics]
+    logs:
+      exporters: [loadbalancing/chopper]
+    profiles:
+      # Profiles aren't an OTLP signal Telemetry Chopper filters; keep them local.
+      exporters: [debug]

@@ -1,0 +1,16 @@
+apiVersion: 1
+providers:
+  - name: telemetry-chopper
+    folder: Telemetry Chopper
+    type: file
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana/dashboards
+  # The collector self-monitoring dashboard shipped with the Helm chart,
+  # mounted from deploy/helm so the rehearsal tests the real artifact.
+  - name: telemetry-chopper-helm
+    folder: Telemetry Chopper
+    type: file
+    disableDeletion: true
+    options:
+      path: /var/lib/grafana/dashboards-chopper

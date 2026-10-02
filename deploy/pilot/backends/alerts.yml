@@ -1,0 +1,43 @@
+# Alerts a pilot customer would run against Telemetry Chopper gateways.
+groups:
+  - name: telemetry-chopper
+    rules:
+      # With DNS (or Kubernetes) discovery a dead replica drops out of the
+      # target list instead of reporting up == 0, so alert on the number of
+      # healthy replicas. Set the threshold to your replica count.
+      - alert: ChopperGatewayDown
+        expr: (count(up{job="chopper-gateway"} == 1) or vector(0)) < 2
+        for: 1m
+        annotations:
+          summary: "Fewer than 2 Telemetry Chopper gateways are healthy"
+
+      - alert: ChopperRuleNotEnforced
+        expr: max by (rule_id, rule_name, state, reason) (otelcol_chopper_filter_rule_status{state=~"invalid|unsupported"}) > 0
+        for: 1m
+        annotations:
+          summary: "Rule {{ $labels.rule_name }} is {{ $labels.state }}: {{ $labels.reason }}"
+
+      - alert: ChopperRuleNoMatches
+        expr: |
+          (sum by (rule_id, rule_name) (increase(otelcol_chopper_filter_rule_matched[15m])) == 0)
+          and on (rule_id) max by (rule_id) (otelcol_chopper_filter_rule_status{state="enforced"})
+        for: 5m
+        annotations:
+          summary: "Rule {{ $labels.rule_name }} matched nothing in 15 minutes"
+
+      - alert: ChopperNoRulesSynced
+        expr: max(otelcol_chopper_filter_rules) == 0 and sum(rate(otelcol_chopper_filter_spans_received[5m])) > 0
+        for: 5m
+        annotations:
+          summary: "Gateways carry traffic but have no rules (control plane unreachable or empty fleet)"
+
+      - alert: ChopperExportFailures
+        expr: |
+          sum by (pod, exporter) (
+              rate(otelcol_exporter_send_failed_spans[5m])
+            + rate(otelcol_exporter_send_failed_log_records[5m])
+            + rate(otelcol_exporter_send_failed_metric_points[5m])
+          ) > 0
+        for: 2m
+        annotations:
+          summary: "Gateway {{ $labels.pod }} is failing to export to {{ $labels.exporter }}"

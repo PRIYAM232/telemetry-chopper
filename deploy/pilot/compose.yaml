@@ -1,0 +1,204 @@
+# Pilot rehearsal: Telemetry Chopper in a production-shaped environment.
+#
+#   OpenTelemetry Demo (≈15 microservices, real SDKs in 10+ languages,
+#   Locust load generator)
+#     └─ agent collector (the demo's own otel-collector, re-pointed)
+#          └─ loadbalancing exporter (traceID / service routing, DNS discovery)
+#               └─ chopper-gateway × 2 replicas  ←── control plane + Postgres
+#                    ├─ Tempo       (traces)
+#                    ├─ Loki        (logs)
+#                    ├─ Prometheus  (metrics + collector self-metrics)
+#                    └─ archive     (ROUTE → cold-storage, file exporter)
+#   Grafana: Tempo / Loki / Prometheus datasources + provisioned dashboards.
+#
+# Start it with scripts/up.sh, which fetches the pinned demo release into
+# .demo/ first (it is not vendored). See README.md for the test plan.
+name: chopper-pilot
+
+include:
+  # The demo's application services, unmodified, plus a small override that
+  # re-points its collector at the Chopper gateway. Paths inside the
+  # override resolve relative to .demo/ (the include's project directory).
+  - path:
+      - .demo/compose.yaml
+      - demo-overrides.yaml
+    project_directory: .demo
+    env_file:
+      - .demo/.env
+      - demo.env
+
+services:
+  # --- Telemetry Chopper control plane ---------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: chopper
+      POSTGRES_PASSWORD: chopper
+      POSTGRES_DB: chopper_control
+    volumes:
+      - pilot-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chopper -d chopper_control"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Migrate and seed the dev fleet (its ID and key are in the gateway config).
+  control-plane-migrate:
+    build:
+      context: ../../control-plane
+      target: builder
+    environment:
+      DATABASE_URL: postgresql://chopper:chopper@postgres:5432/chopper_control?schema=public
+    command: sh -c "npx prisma migrate deploy && npx prisma db seed"
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Delete the seed's sample rules: the rehearsal starts from a clean baseline
+  # and every rule is added deliberately during the test plan. Runs after
+  # every seed, because the seed re-creates them.
+  pilot-init:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: chopper
+    command:
+      - psql
+      - -h
+      - postgres
+      - -U
+      - chopper
+      - -d
+      - chopper_control
+      - -c
+      - DELETE FROM "PolicyRule" WHERE id::text LIKE '0a000000-%'
+    restart: "no"
+    depends_on:
+      control-plane-migrate:
+        condition: service_completed_successfully
+
+  control-plane:
+    build:
+      context: ../../control-plane
+      target: runner
+    environment:
+      DATABASE_URL: postgresql://chopper:chopper@postgres:5432/chopper_control?schema=public
+    ports:
+      - "127.0.0.1:${CHOPPER_UI_PORT:-3300}:3000"
+    depends_on:
+      pilot-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # --- Telemetry Chopper gateway tier ----------------------------------------
+  # Two replicas behind one DNS name, like a Kubernetes Deployment behind a
+  # headless Service: the agent's loadbalancing exporter resolves
+  # chopper-gateway to every replica and re-resolves every few seconds, so a
+  # replica that dies drops out of rotation. Scale with
+  #   docker compose ... up -d --scale chopper-gateway=3
+  chopper-gateway:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.collector
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          memory: 300M
+    restart: unless-stopped
+    volumes:
+      - ./gateway/otelcol-gateway.yaml:/etc/otelcol/config.yaml:ro
+      - pilot-archive:/archive
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      archive-init:
+        condition: service_completed_successfully
+      tempo:
+        condition: service_started
+      loki:
+        condition: service_started
+      prometheus:
+        condition: service_started
+
+  # The cold-storage file exporter writes as the image's distroless nonroot user (65532); give
+  # the shared archive volume to that user once.
+  archive-init:
+    image: busybox:1.37
+    command: ["sh", "-c", "chown -R 65532:65532 /archive"]
+    volumes:
+      - pilot-archive:/archive
+    restart: "no"
+
+  # --- The "vendor": Grafana LGTM-style backends -----------------------------
+  tempo:
+    image: grafana/tempo:2.8.2
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./backends/tempo.yaml:/etc/tempo.yaml:ro
+      - pilot-tempo:/var/tempo
+    deploy:
+      resources:
+        limits:
+          memory: 600M
+
+  loki:
+    image: grafana/loki:3.5.5
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - ./backends/loki.yaml:/etc/loki/loki.yaml:ro
+      - pilot-loki:/loki
+    deploy:
+      resources:
+        limits:
+          memory: 600M
+
+  prometheus:
+    image: prom/prometheus:v3.6.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-otlp-receiver
+      - --web.enable-lifecycle
+      - --enable-feature=exemplar-storage
+    volumes:
+      - ./backends/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./backends/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - pilot-prometheus:/prometheus
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9390}:9090"
+    deploy:
+      resources:
+        limits:
+          memory: 800M
+
+  grafana:
+    image: grafana/grafana:12.2.0
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+      GF_FEATURE_TOGGLES_ENABLE: traceqlEditor
+    volumes:
+      - ./backends/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./backends/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ../helm/telemetry-chopper/files/chopper-collector-dashboard.json:/var/lib/grafana/dashboards-chopper/chopper-collector-dashboard.json:ro
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3301}:3000"
+    depends_on:
+      - tempo
+      - loki
+      - prometheus
+
+volumes:
+  pilot-pgdata:
+  pilot-archive:
+  pilot-tempo:
+  pilot-loki:
+  pilot-prometheus:
