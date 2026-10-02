@@ -8,7 +8,7 @@ A Telemetry Chopper **rule** tells your collectors what to do with matching tele
 |---|---|---|
 | **DROP** | Removes matching records in the collector. | Ingest, indexing and egress |
 | **SAMPLE** | Keeps a fraction of matching traces and drops the rest. All spans of a trace share the same keep-or-drop decision, so traces stay complete. | Ingest, indexing and egress on the dropped share |
-| **THROTTLE** | Limits matching records to a rate (events per second), optionally per attribute value such as `tenant_id`. Records over the limit are dropped. | Ingest, indexing and egress on the excess |
+| **THROTTLE** | Limits matching records to a rate (events per second), optionally per attribute value such as `tenant_id`. Records over the limit are dropped. The limit applies to each collector separately. | Ingest, indexing and egress on the excess |
 | **REDACT** | Masks the matched value, or only the substrings a regular expression matches, before data leaves your network. | Nothing; the record is still sent |
 | **ROUTE** | Tags matching data so the collector's routing connector sends it to a different pipeline, such as cold storage. | Nothing; the record is still sent |
 | **EXCLUDE_INDEX** | Forwards matching records but marks them so your vendor keeps them out of its paid search index. See [Keep events out of your vendor's index](exclude-from-index.md). | Indexing only |
@@ -26,6 +26,14 @@ Not every action applies to every signal:
 
 A rule whose action doesn't apply to its signal is saved, but collectors don't enforce it, and the dashboard marks it **not enforced yet**. See [Monitor what each rule is doing](monitor-rule-activity.md).
 
+### Sample whole traces
+
+A SAMPLE rule only samples the spans its condition matches. If some spans of a trace don't match, they're always kept while their parents may be sampled out, leaving traces with orphaned spans. Spans from browsers, proxies and third-party components often lack attributes your services set, such as `service.namespace`. To sample whole traces, use a condition every span has, for example `service.name` `EXISTS`.
+
+### Size THROTTLE limits for your gateway count
+
+Each collector enforces a THROTTLE rule's limit on the traffic it sees. With several gateway replicas sharing the load, the fleet-wide rate can reach the limit times the number of replicas. To cap the fleet at a rate, divide it by the number of replicas. Each collector allows a burst of one second's worth of records, so sources that send in large, infrequent batches can pass less than the limit.
+
 ## Conditions
 
 A condition compares one field with a value: `<field> <operator> <value>`.
@@ -42,7 +50,7 @@ The field is looked up on the record's attributes first, then on its resource at
 
 | Field | Signal | Reads |
 |---|---|---|
-| `log.severity` | Logs | The severity text, such as `ERROR` |
+| `log.severity` | Logs | The severity text, such as `ERROR`. SDKs spell levels differently (`INFO`, `info`, `Information`), so prefer `REGEX_MATCH` with `(?i)`, for example `(?i)^info`. |
 | `log.body` | Logs | The log message body |
 | `metric.name` | Metrics | The metric name, such as `http.server.duration` |
 

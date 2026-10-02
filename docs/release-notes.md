@@ -1,5 +1,15 @@
 # Release notes
 
+## October 2, 2026
+
+### New
+
+- **Pilot rehearsal environment.** Run Telemetry Chopper as a two-replica gateway tier behind an agent collector, in front of the OpenTelemetry Demo, shipping to Tempo, Loki and Prometheus with Grafana dashboards. Includes a test plan and reference results. See [Pilot rehearsal environment](../deploy/pilot/README.md).
+
+### Documentation
+
+- [Rules overview](rules/README.md#sample-whole-traces): how to sample whole traces, how THROTTLE limits behave with several gateway replicas, and matching severity text case-insensitively.
+
 ## October 1, 2026
 
 ### New

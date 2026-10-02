@@ -1,0 +1,121 @@
+# Telemetry Chopper gateway config for the pilot rehearsal. Every replica
+# runs this same file and polls the same fleet, so all replicas enforce one
+# ruleset and report into one dashboard.
+#
+#   agent ─OTLP─▶ chopper_filter ─▶ routing ─┬─ hot:  Tempo / Loki / Prometheus
+#                                            └─ cold: archive file (ROUTE → cold-storage)
+#
+# Fleet ID and key are the deterministic local dev values created by the
+# control plane's seed. Rotate them for a real pilot.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  chopper_filter:
+    sync_endpoint: http://control-plane:3000/api/v1/policies/f1ee7000-0000-4000-8000-000000000001
+    sync_interval: 10s
+    stats_endpoint: http://control-plane:3000/api/v1/telemetry/f1ee7000-0000-4000-8000-000000000001/stats
+    stats_interval: 10s
+    fleet_key: chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
+
+connectors:
+  routing/traces:
+    default_pipelines: [traces/hot]
+    table:
+      - context: resource
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
+        pipelines: [traces/cold]
+  routing/logs:
+    default_pipelines: [logs/hot]
+    table:
+      - context: resource
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
+        pipelines: [logs/cold]
+  routing/metrics:
+    default_pipelines: [metrics/hot]
+    table:
+      - context: resource
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
+        pipelines: [metrics/cold]
+
+exporters:
+  otlp_grpc/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+    sending_queue:
+      batch:
+        flush_timeout: 1s
+  # Loki's native OTLP endpoint; resource attributes such as service.name
+  # become stream labels.
+  otlp_http/loki:
+    endpoint: http://loki:3100/otlp
+    sending_queue:
+      batch:
+        flush_timeout: 1s
+  # Prometheus's native OTLP receiver (--web.enable-otlp-receiver).
+  otlp_http/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+    sending_queue:
+      batch:
+        flush_timeout: 5s
+  # Cold storage stand-in: one JSON line per batch on the archive volume.
+  file/archive:
+    path: /archive/cold.jsonl
+    rotation:
+      max_megabytes: 100
+      max_backups: 3
+
+service:
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+                without_scope_info: true
+                without_type_suffix: true
+                without_units: true
+  pipelines:
+    traces/in:
+      receivers: [otlp]
+      processors: [chopper_filter]
+      exporters: [routing/traces]
+    logs/in:
+      receivers: [otlp]
+      processors: [chopper_filter]
+      exporters: [routing/logs]
+    metrics/in:
+      receivers: [otlp]
+      processors: [chopper_filter]
+      exporters: [routing/metrics]
+
+    traces/hot:
+      receivers: [routing/traces]
+      exporters: [otlp_grpc/tempo]
+    traces/cold:
+      receivers: [routing/traces]
+      exporters: [file/archive]
+    logs/hot:
+      receivers: [routing/logs]
+      exporters: [otlp_http/loki]
+    logs/cold:
+      receivers: [routing/logs]
+      exporters: [file/archive]
+    metrics/hot:
+      receivers: [routing/metrics]
+      exporters: [otlp_http/prometheus]
+    metrics/cold:
+      receivers: [routing/metrics]
+      exporters: [file/archive]

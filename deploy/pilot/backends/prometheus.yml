@@ -1,0 +1,60 @@
+# Prometheus: the pilot's metrics "vendor" (application metrics arrive over
+# OTLP through the gateway) and the meta-monitoring store (it scrapes the
+# gateways' self-metrics and the backends' ingest counters directly).
+global:
+  scrape_interval: 10s
+  evaluation_interval: 10s
+
+storage:
+  tsdb:
+    # OTLP pushes from several gateway replicas can arrive slightly out of order.
+    out_of_order_time_window: 30m
+
+otlp:
+  # Promote resource attributes to labels, or series from different
+  # resources (e.g. docker_stats per container, which has no service.name)
+  # collapse into one and Prometheus rejects the duplicates. Skip the
+  # per-host descriptive attributes that only add label noise.
+  promote_all_resource_attributes: true
+  ignore_resource_attributes:
+    - host.arch
+    - host.cpu.cache.l2.size
+    - host.cpu.family
+    - host.cpu.model.id
+    - host.cpu.model.name
+    - host.cpu.stepping
+    - host.cpu.vendor.id
+    - os.description
+    - process.command_line
+    - process.command_args
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  # Every gateway replica, discovered through the compose service's DNS
+  # name (one A record per replica). `pod` matches the label the bundled
+  # Grafana dashboard filters on.
+  - job_name: chopper-gateway
+    dns_sd_configs:
+      - names: [chopper-gateway]
+        type: A
+        port: 8888
+        refresh_interval: 10s
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: "([^:]+):.*"
+        target_label: pod
+        replacement: gateway-$1
+
+  # Ingest counters on the "vendor" side, an independent check on what the
+  # gateways say they forwarded.
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

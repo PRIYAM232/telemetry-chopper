@@ -1,0 +1,35 @@
+# Loki, single binary, filesystem storage: the pilot's logs "vendor".
+auth_enabled: false
+server:
+  http_listen_port: 3100
+  log_level: warn
+common:
+  path_prefix: /loki
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+limits_config:
+  allow_structured_metadata: true
+  volume_enabled: true
+  ingestion_rate_mb: 64
+  ingestion_burst_size_mb: 128
+  retention_period: 24h
+  # Default is 64 KB. Collector error logs carry large attribute dumps; 1 MB
+  # is closer to what commercial log vendors accept per record.
+  max_structured_metadata_size: 1MB
+analytics:
+  reporting_enabled: false
