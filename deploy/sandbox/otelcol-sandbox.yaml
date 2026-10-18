@@ -19,6 +19,15 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 processors:
+  # Sheds load before the collector runs out of memory (issue #48): above
+  # the soft limit (limit - spike, here 55% of the memory available to the
+  # process, i.e. the container limit when there is one) the OTLP receiver
+  # answers with a retryable error, so senders back off instead of the
+  # collector being OOM-killed. Must be first in every ingest pipeline.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
   chopper_filter:
     log_span_details: false
     sync_endpoint: http://control-plane:3000/api/v1/policies/f1ee7000-0000-4000-8000-000000000001
@@ -87,15 +96,15 @@ service:
   pipelines:
     traces/in:
       receivers: [otlp]
-      processors: [chopper_filter]
+      processors: [memory_limiter, chopper_filter]
       exporters: [routing/traces]
     logs/in:
       receivers: [otlp]
-      processors: [chopper_filter]
+      processors: [memory_limiter, chopper_filter]
       exporters: [routing/logs]
     metrics/in:
       receivers: [otlp]
-      processors: [chopper_filter]
+      processors: [memory_limiter, chopper_filter]
       exporters: [routing/metrics]
 
     traces/hot:

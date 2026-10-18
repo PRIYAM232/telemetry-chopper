@@ -293,6 +293,7 @@ Telemetry Chopper V1 assumes deployment inside a **trusted network perimeter** �
 V1 is designed to slot behind the perimeter controls your platform team already operates:
 
 - **Control Plane access** — front the Next.js UI and policy API with an Identity-Aware Proxy such as [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/) or [Tailscale](https://tailscale.com/), or restrict it to your internal VPN. Every rule mutation then carries your organization's existing identity and access policy.
+- **Gateway resilience** — run `memory_limiter` first in every pipeline and give exporters persistent queues (`file_storage`), so traffic spikes are shed instead of OOM-killing a gateway and queued telemetry survives a restart. The Helm chart does both by default; see [Run gateways in production](docs/deploy/run-gateways-in-production.md).
 - **Network encryption** — enforce mTLS between `otelcol-chopper` and the Control Plane with a Kubernetes service mesh ([Istio](https://istio.io/), [Linkerd](https://linkerd.io/)) or a TLS-terminating ingress controller. The sync and stats endpoints are plain HTTP calls, so mesh sidecars wrap them transparently — no Telemetry Chopper configuration changes required.
 
 ### Inherent security benefits

@@ -89,6 +89,10 @@ spec:
             - name: archive
               mountPath: {{ .Values.collector.coldStorage.file.mountPath }}
             {{- end }}
+            {{- if .Values.collector.persistentQueue.enabled }}
+            - name: queue
+              mountPath: /var/lib/otelcol/file_storage
+            {{- end }}
           # The distro doesn't bundle the health_check extension (see
           # data-plane/builder-config.yaml), so probe the OTLP gRPC listener:
           # it only binds once the pipelines are built and started.
@@ -115,6 +119,11 @@ spec:
         # collector.coldStorage.file: the NAS/PVC the file archive writes to.
         - name: archive
           {{- toYaml .Values.collector.coldStorage.file.volume | nindent 10 }}
+        {{- end }}
+        {{- if .Values.collector.persistentQueue.enabled }}
+        # collector.persistentQueue: the file_storage extension's directory.
+        - name: queue
+          {{- toYaml .Values.collector.persistentQueue.volume | nindent 10 }}
         {{- end }}
 {{- if .Values.collector.serviceAccount.create }}
 ---

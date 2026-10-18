@@ -28,6 +28,10 @@ Telemetry Chopper measures the bytes and events your rules keep away from your v
 - [Include cloud egress savings](savings/include-cloud-egress.md): add your cloud provider's data transfer fees to the total.
 - [How savings are calculated](savings/calculations.md): the formulas behind every figure.
 
+## Deploy Telemetry Chopper
+
+- [Run gateways in production](deploy/run-gateways-in-production.md): limit memory use and keep queued telemetry across crashes and restarts.
+
 ## Monitor Telemetry Chopper
 
 - [Monitor collectors with Prometheus and Grafana](monitoring/README.md): self-metrics, alerts, the Grafana dashboard and the collector's sync log.

@@ -16,9 +16,15 @@ COPY data-plane/ ./data-plane/
 ENV CGO_ENABLED=0
 RUN cd data-plane && /go/bin/builder --config builder-config.yaml
 
+# Home of the file_storage extension's persistent exporter queues (issue #48).
+# distroless has no shell to mkdir with, so the empty directory is made here
+# and copied in owned by the nonroot user the collector runs as.
+RUN mkdir -p /queue/var/lib/otelcol/file_storage
+
 FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /src/data-plane/dist/otelcol-chopper /otelcol-chopper
+COPY --from=build --chown=65532:65532 /queue/var/lib/otelcol /var/lib/otelcol
 COPY data-plane/config/otelcol-dev.yaml /etc/otelcol/config.yaml
 
 # OTLP gRPC / OTLP HTTP

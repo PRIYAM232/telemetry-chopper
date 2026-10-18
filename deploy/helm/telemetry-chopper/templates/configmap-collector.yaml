@@ -26,7 +26,24 @@ data:
           http:
             endpoint: 0.0.0.0:4318
 
+    {{- if .Values.collector.persistentQueue.enabled }}
+    extensions:
+      # Persistent exporter queues (collector.persistentQueue).
+      file_storage:
+        directory: /var/lib/otelcol/file_storage
+        timeout: 1s
+        compaction:
+          on_start: true
+          on_rebound: true
+          directory: /var/lib/otelcol/file_storage
+    {{- end }}
+
     processors:
+      # First in every ingest pipeline (collector.memoryLimiter).
+      memory_limiter:
+        check_interval: {{ .Values.collector.memoryLimiter.checkInterval }}
+        limit_percentage: {{ .Values.collector.memoryLimiter.limitPercentage }}
+        spike_limit_percentage: {{ .Values.collector.memoryLimiter.spikeLimitPercentage }}
       chopper_filter:
         log_span_details: {{ .Values.collector.logSpanDetails }}
         sync_endpoint: {{ include "telemetry-chopper.controlPlaneUrl" . }}/api/v1/policies/{{ .Values.fleet.id }}
@@ -78,6 +95,9 @@ data:
           s3_force_path_style: {{ .s3.forcePathStyle }}
         marshaler: {{ .s3.marshaler | quote }}
         sending_queue:
+          {{- if $.Values.collector.persistentQueue.enabled }}
+          storage: file_storage
+          {{- end }}
           batch:
             flush_timeout: {{ .batchFlushTimeout }}
       {{- end }}
@@ -92,6 +112,9 @@ data:
           {{- toYaml .azureBlob.containers | nindent 10 }}
         format: {{ .azureBlob.format | quote }}
         sending_queue:
+          {{- if $.Values.collector.persistentQueue.enabled }}
+          storage: file_storage
+          {{- end }}
           batch:
             flush_timeout: {{ .batchFlushTimeout }}
       {{- end }}
@@ -111,6 +134,9 @@ data:
       {{- end }}
 
     service:
+      {{- if .Values.collector.persistentQueue.enabled }}
+      extensions: [file_storage]
+      {{- end }}
       telemetry:
         logs:
           level: {{ .Values.collector.telemetryLogLevel }}
@@ -138,15 +164,15 @@ data:
       pipelines:
         traces/in:
           receivers: [otlp]
-          processors: [chopper_filter]
+          processors: [memory_limiter, chopper_filter]
           exporters: [routing/traces]
         logs/in:
           receivers: [otlp]
-          processors: [chopper_filter]
+          processors: [memory_limiter, chopper_filter]
           exporters: [routing/logs]
         metrics/in:
           receivers: [otlp]
-          processors: [chopper_filter]
+          processors: [memory_limiter, chopper_filter]
           exporters: [routing/metrics]
 
         traces/hot:

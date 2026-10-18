@@ -2,8 +2,13 @@
 # runs this same file and polls the same fleet, so all replicas enforce one
 # ruleset and report into one dashboard.
 #
-#   agent ─OTLP─▶ chopper_filter ─▶ routing ─┬─ hot:  Tempo / Loki / Prometheus
-#                                            └─ cold: archive file (ROUTE → cold-storage)
+#   agent ─OTLP─▶ memory_limiter ─▶ chopper_filter ─▶ routing ─┬─ hot:  Tempo / Loki / Prometheus
+#                                                              └─ cold: archive file (ROUTE → cold-storage)
+#
+# Production hardening (issue #48): memory_limiter sheds load before the
+# container's memory limit is reached, and the hot exporters' queues live on
+# disk (file_storage), so batches waiting on a backend survive a crash or
+# restart of the gateway.
 #
 # Fleet ID and key are the deterministic local dev values created by the
 # control plane's seed. Rotate them for a real pilot.
@@ -16,7 +21,28 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
+extensions:
+  # Persistent exporter queues. The directory is in the container's own
+  # filesystem (the image creates it), which survives `docker kill` + the
+  # restart policy; each replica gets its own. A recreated container starts
+  # empty, so mount a per-replica volume where gateways are recreated.
+  file_storage:
+    directory: /var/lib/otelcol/file_storage
+    timeout: 1s
+    compaction:
+      on_start: true
+      on_rebound: true
+      directory: /var/lib/otelcol/file_storage
+
 processors:
+  # First in every ingest pipeline. Percentages of the container memory limit
+  # (300M in compose.yaml): data is refused above 55% (165M, the soft limit)
+  # and a GC is forced at 80% (240M). Refused data gets a retryable error, so
+  # the agent's loadbalancing exporter retries it.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
   chopper_filter:
     sync_endpoint: http://control-plane:3000/api/v1/policies/f1ee7000-0000-4000-8000-000000000001
     sync_interval: 10s
@@ -50,6 +76,7 @@ exporters:
     tls:
       insecure: true
     sending_queue:
+      storage: file_storage
       batch:
         flush_timeout: 1s
   # Loki's native OTLP endpoint; resource attributes such as service.name
@@ -57,12 +84,14 @@ exporters:
   otlp_http/loki:
     endpoint: http://loki:3100/otlp
     sending_queue:
+      storage: file_storage
       batch:
         flush_timeout: 1s
   # Prometheus's native OTLP receiver (--web.enable-otlp-receiver).
   otlp_http/prometheus:
     endpoint: http://prometheus:9090/api/v1/otlp
     sending_queue:
+      storage: file_storage
       batch:
         flush_timeout: 5s
   # Cold storage stand-in: one JSON line per batch on the archive volume.
@@ -73,6 +102,7 @@ exporters:
       max_backups: 3
 
 service:
+  extensions: [file_storage]
   telemetry:
     logs:
       level: info
@@ -90,15 +120,15 @@ service:
   pipelines:
     traces/in:
       receivers: [otlp]
-      processors: [chopper_filter]
+      processors: [memory_limiter, chopper_filter]
       exporters: [routing/traces]
     logs/in:
       receivers: [otlp]
-      processors: [chopper_filter]
+      processors: [memory_limiter, chopper_filter]
       exporters: [routing/logs]
     metrics/in:
       receivers: [otlp]
-      processors: [chopper_filter]
+      processors: [memory_limiter, chopper_filter]
       exporters: [routing/metrics]
 
     traces/hot:
