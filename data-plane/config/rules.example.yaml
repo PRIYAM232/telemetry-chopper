@@ -1,0 +1,45 @@
+# Telemetry Chopper rules file.
+#
+# Used when the collector's chopper_filter processor sets rules_file. Rules
+# run in order, top to bottom, on every span, log record and metric. Edits
+# apply within a few seconds; an invalid edit is logged and the previous
+# rules stay in force. Full reference: docs/rules/rules-file.md
+#
+# Each rule:
+#   name:     unique, shown in logs and metrics
+#   signal:   traces | logs | metrics
+#   action:   drop | sample | redact | route | throttle | exclude_index
+#   when:     { field: <attribute>, op: <op>, value: <value>, ignore_case: <bool> }
+#             op: equals | contains | regex_match | exists | greater_than | less_than
+#   enabled:  false pauses the rule (default true)
+#
+# Plus, by action:
+#   sample:   sample_rate (fraction to keep), sample_scope: trace (default) | span
+#   route:    destination (a routing connector table entry)
+#   throttle: throttle_rate (records per second), throttle_group_by (optional)
+
+rules:
+  # Health checks are pure noise in most trace backends.
+  - name: drop-health-checks
+    signal: traces
+    action: drop
+    when: { field: http.route, op: regex_match, value: '^/(healthz|readyz|livez)$' }
+
+  # Debug logs, however the service spells the level.
+  - name: drop-debug-logs
+    signal: logs
+    action: drop
+    when: { field: log.severity, op: equals, value: debug, ignore_case: true }
+
+  # Mask email addresses in log bodies before they leave the network.
+  - name: mask-emails
+    signal: logs
+    action: redact
+    when: { field: log.body, op: regex_match, value: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' }
+
+  # Keep one trace in four, whole traces only. Paused until you turn it on.
+  - name: keep-25-percent-of-traces
+    signal: traces
+    action: sample
+    sample_rate: 0.25
+    enabled: false

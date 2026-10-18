@@ -13,9 +13,10 @@ import (
 // Config defines the user-facing configuration of the Telemetry Chopper filter processor.
 //
 // Phase 2 adds the control-plane sync settings. The rule document itself is
-// NOT configured here — it is fetched at runtime from the control plane and
-// held behind a sync.RWMutex inside the processor. This struct is only the
-// static bootstrap configuration parsed from the collector YAML.
+// NOT configured here — it is fetched at runtime from the control plane (or
+// read from rules_file) and held behind a sync.RWMutex inside the processor.
+// This struct is only the static bootstrap configuration parsed from the
+// collector YAML.
 type Config struct {
 	// LogSpanDetails enables per-span debug logging (trace ID, span ID, name).
 	// Batch-level count logging is always on at debug level. Keep this false
@@ -48,6 +49,16 @@ type Config struct {
 	// StatsEndpoint. Also the heartbeat cadence: a report is sent even when
 	// both counters are zero so the control plane can tell idle from dead.
 	StatsInterval time.Duration `mapstructure:"stats_interval"`
+
+	// RulesFile is the path of a local YAML rules file (rulesfile.go): the
+	// standalone alternative to SyncEndpoint for collectors run without a
+	// control plane. Mutually exclusive with SyncEndpoint and StatsEndpoint.
+	RulesFile string `mapstructure:"rules_file"`
+
+	// RulesFileCheckInterval is how often RulesFile is re-read; a changed,
+	// valid file replaces the ruleset without a restart. 0 reads it once at
+	// startup only.
+	RulesFileCheckInterval time.Duration `mapstructure:"rules_file_check_interval"`
 }
 
 var _ component.Config = (*Config)(nil)
@@ -60,6 +71,9 @@ const minSyncInterval = time.Second
 // unmarshaled into Config. Returning an error here fails collector startup
 // with a clear message instead of misbehaving at runtime.
 func (cfg *Config) Validate() error {
+	if cfg.RulesFile != "" {
+		return cfg.validateRulesFile()
+	}
 	if cfg.SyncEndpoint == "" && cfg.StatsEndpoint == "" {
 		// Static pass-through mode; intervals and fleet_key are unused.
 		return nil
@@ -85,6 +99,20 @@ func (cfg *Config) Validate() error {
 		return errors.New("fleet_key is required when sync_endpoint or stats_endpoint is set")
 	}
 	return nil
+}
+
+// validateRulesFile checks standalone mode's settings and the file itself,
+// so `otelcol-chopper validate` and startup both reject a broken rules file
+// with the rule and the problem named.
+func (cfg *Config) validateRulesFile() error {
+	if cfg.SyncEndpoint != "" || cfg.StatsEndpoint != "" {
+		return errors.New("rules_file can't be combined with sync_endpoint or stats_endpoint: rules come from either the file or the control plane")
+	}
+	if cfg.RulesFileCheckInterval != 0 && cfg.RulesFileCheckInterval < minSyncInterval {
+		return fmt.Errorf("rules_file_check_interval must be 0 (read once) or at least %s, got %s", minSyncInterval, cfg.RulesFileCheckInterval)
+	}
+	_, _, err := loadRulesFile(cfg.RulesFile)
+	return err
 }
 
 func validateControlPlaneURL(field, raw string) error {

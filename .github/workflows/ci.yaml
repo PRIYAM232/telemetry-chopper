@@ -97,6 +97,10 @@ jobs:
       - name: Assemble otelcol-chopper
         working-directory: data-plane
         run: builder --config builder-config.yaml
+      # The standalone config and the example rules file it points at are
+      # what the packages install; the built binary must accept both.
+      - name: Validate standalone config and example rules
+        run: data-plane/dist/otelcol-chopper validate --config data-plane/config/otelcol-standalone.yaml
       # Source mode against the go.mod ocb generated in dist/, so the
       # builder-config.yaml `replaces:` security pins are in effect and only
       # vulnerabilities on a real call path fail the build. Not -mode=binary:

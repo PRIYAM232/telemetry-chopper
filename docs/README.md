@@ -17,6 +17,7 @@ Rules decide what happens to each span, log record and metric that reaches a col
 - [Keep events out of your vendor's index](rules/exclude-from-index.md): forward data for live tail and archives without paying to make it searchable.
 - [Monitor what each rule is doing](rules/monitor-rule-activity.md): per-rule match and drop counts, savings, and warnings for rules that never match or can't run.
 - [Pause, delete and restore rules](rules/pause-and-delete-rules.md): turn a rule off safely and undo an accidental delete.
+- [Run without the control plane](rules/rules-file.md): keep rules in a YAML file and run a single collector on its own.
 
 ## Measure observability savings
 

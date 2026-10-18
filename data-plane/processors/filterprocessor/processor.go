@@ -44,8 +44,7 @@ func newTracesProcessor(set processor.Settings, cfg *Config, engine *ruleEngine,
 // processor to start spawns the control-plane goroutines, the last one to
 // shut down tears them down.
 func (p *tracesProcessor) Start(_ context.Context, _ component.Host) error {
-	p.engine.start()
-	return nil
+	return p.engine.start()
 }
 
 func (p *tracesProcessor) Shutdown(_ context.Context) error {

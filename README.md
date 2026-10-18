@@ -278,6 +278,20 @@ processors:
     log_span_details: false     # per-span debug logging (dev only)
 ```
 
+**Standalone, without the control plane:** read rules from a local YAML file instead. Edits apply within seconds, without a restart. See [Run without the control plane](docs/rules/rules-file.md).
+
+```yaml
+processors:
+  chopper_filter:
+    rules_file: /etc/telemetry-chopper/rules.yaml
+    rules_file_check_interval: 5s   # 0 reads the file once at startup
+```
+
+```bash
+make build
+data-plane/dist/otelcol-chopper --config data-plane/config/otelcol-standalone.yaml
+```
+
 ---
 
 ## Security Posture & Roadmap

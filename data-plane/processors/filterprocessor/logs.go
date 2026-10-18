@@ -57,8 +57,7 @@ func newLogsProcessor(set processor.Settings, cfg *Config, engine *ruleEngine, n
 // processor to start spawns the control-plane goroutines, the last one to
 // shut down tears them down.
 func (p *logsProcessor) Start(_ context.Context, _ component.Host) error {
-	p.engine.start()
-	return nil
+	return p.engine.start()
 }
 
 func (p *logsProcessor) Shutdown(_ context.Context) error {

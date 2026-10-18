@@ -78,12 +78,15 @@ func NewFactory() processor.Factory {
 func createDefaultConfig() component.Config {
 	return &Config{
 		LogSpanDetails: false,
-		// Sync and stats are opt-in: leaving both endpoints empty keeps the
-		// processor in static pass-through mode. 30s is a sane default poll
+		// Sync, stats and rules_file are opt-in: leaving all three empty
+		// keeps the processor in static pass-through mode. 30s is a sane default poll
 		// cadence once an endpoint is configured; stats report faster so the
 		// dashboard's savings numbers track close to real time.
 		SyncInterval:  30 * time.Second,
 		StatsInterval: 10 * time.Second,
+		// Only used with rules_file: edits apply within seconds, and
+		// re-reading a small file this often costs nothing.
+		RulesFileCheckInterval: 5 * time.Second,
 	}
 }
 
