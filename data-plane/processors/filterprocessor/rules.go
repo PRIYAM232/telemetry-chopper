@@ -59,6 +59,17 @@ type compiledRule struct {
 	// which conditionUsable turns into "rule not enforced" (fail open).
 	regex *regexp.Regexp
 
+	// containsFold is a case-insensitive CONTAINS compiled to a literal
+	// `(?i)` pattern at sync time, which matches without allocating; nil for
+	// every other rule. EQUALS needs no compiled state (strings.EqualFold).
+	containsFold *regexp.Regexp
+
+	// threshold is GREATER_THAN / LESS_THAN's value parsed once at sync
+	// time instead of per record; thresholdOK is false when it isn't a
+	// number, and such a rule never matches.
+	threshold   float64
+	thresholdOK bool
+
 	// limiters is the THROTTLE rule's token-bucket map (see ratelimit.go),
 	// created once per sync like the regex. nil for every other action — and
 	// for a THROTTLE rule without a positive rate, which ruleApplies* turns
@@ -113,10 +124,27 @@ func compileRules(rules []PolicyRule, logger *zap.Logger) []compiledRule {
 			}
 		}
 
-		if rules[i].ConditionOp != OpRegexMatch {
+		switch rules[i].ConditionOp {
+		case OpGreaterThan, OpLessThan:
+			t, err := strconv.ParseFloat(rules[i].ConditionValue, 64)
+			compiled[i].threshold, compiled[i].thresholdOK = t, err == nil
+			continue
+		case OpContains:
+			if rules[i].ConditionIgnoreCase {
+				compiled[i].containsFold = regexp.MustCompile("(?i)" + regexp.QuoteMeta(rules[i].ConditionValue))
+			}
+			continue
+		case OpRegexMatch:
+		default:
 			continue
 		}
-		re, err := regexp.Compile(rules[i].ConditionValue)
+		pattern := rules[i].ConditionValue
+		if rules[i].ConditionIgnoreCase {
+			// A flag group, not a prefix match: (?i) applies to the whole
+			// pattern, including the substrings a REDACT rule masks.
+			pattern = "(?i)" + pattern
+		}
+		re, err := regexp.Compile(pattern)
 		if err != nil {
 			logger.Warn("chopper_filter: REGEX_MATCH pattern does not compile, rule will not be enforced",
 				zap.String("rule", rules[i].Name),
@@ -254,16 +282,13 @@ func matchConditionValue(rule *compiledRule, val pcommon.Value) bool {
 	switch rule.ConditionOp {
 	case OpExists:
 		return true
-	case OpEquals:
+	case OpEquals, OpContains:
 		// String comparison on the canonical rendering, so a rule value of
 		// "404" matches both Str("404") and Int(404) attributes.
-		return val.AsString() == rule.ConditionValue
-	case OpContains:
-		return strings.Contains(val.AsString(), rule.ConditionValue)
-	case OpGreaterThan:
+		return matchConditionString(rule, val.AsString())
+	case OpGreaterThan, OpLessThan:
 		attr, attrOK := attributeAsFloat(val)
-		threshold, err := strconv.ParseFloat(rule.ConditionValue, 64)
-		return attrOK && err == nil && attr > threshold
+		return attrOK && compareThreshold(rule, attr)
 	case OpRegexMatch:
 		// regex is pre-compiled at sync time (compileRules); nil means the
 		// pattern was rejected there and the rule is unenforceable.
@@ -282,18 +307,49 @@ func matchConditionString(rule *compiledRule, s string) bool {
 	case OpExists:
 		return true
 	case OpEquals:
+		if rule.ConditionIgnoreCase {
+			return strings.EqualFold(s, rule.ConditionValue)
+		}
 		return s == rule.ConditionValue
 	case OpContains:
+		if rule.containsFold != nil {
+			return rule.containsFold.MatchString(s)
+		}
 		return strings.Contains(s, rule.ConditionValue)
-	case OpGreaterThan:
-		attr, attrErr := strconv.ParseFloat(s, 64)
-		threshold, err := strconv.ParseFloat(rule.ConditionValue, 64)
-		return attrErr == nil && err == nil && attr > threshold
+	case OpGreaterThan, OpLessThan:
+		attr, err := strconv.ParseFloat(s, 64)
+		return err == nil && compareThreshold(rule, attr)
 	case OpRegexMatch:
 		return rule.regex != nil && rule.regex.MatchString(s)
 	default:
 		return false
 	}
+}
+
+// matchConditionNumber applies the rule's operator to a numeric record field
+// (log.severity_number) without rendering it to a string on the hot path for
+// the numeric operators.
+func matchConditionNumber(rule *compiledRule, n int64) bool {
+	switch rule.ConditionOp {
+	case OpExists:
+		return true
+	case OpGreaterThan, OpLessThan:
+		return compareThreshold(rule, float64(n))
+	default:
+		return matchConditionString(rule, strconv.FormatInt(n, 10))
+	}
+}
+
+// compareThreshold applies GREATER_THAN / LESS_THAN against the threshold
+// compileRules parsed. A rule whose value isn't a number never matches.
+func compareThreshold(rule *compiledRule, v float64) bool {
+	if !rule.thresholdOK {
+		return false
+	}
+	if rule.ConditionOp == OpLessThan {
+		return v < rule.threshold
+	}
+	return v > rule.threshold
 }
 
 // attributeAsFloat coerces numeric and numeric-string attribute values for

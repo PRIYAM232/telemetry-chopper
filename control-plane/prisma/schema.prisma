@@ -56,6 +56,9 @@ enum TargetSignal {
 enum ConditionOp {
   EQUALS
   GREATER_THAN
+  // The field is a number below conditionValue (issue #47), e.g.
+  // log.severity_number LESS_THAN 13 for "INFO and below".
+  LESS_THAN
   CONTAINS
   EXISTS
   // conditionValue is a Go RE2 pattern, compiled by the data plane once per
@@ -127,6 +130,10 @@ model PolicyRule {
   conditionField String
   conditionOp    ConditionOp
   conditionValue String
+  // EQUALS, CONTAINS and REGEX_MATCH compare case-insensitively when true
+  // (issue #47): SDKs spell the same value INFO, info or Info. Ignored by
+  // the other operators.
+  conditionIgnoreCase Boolean @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
