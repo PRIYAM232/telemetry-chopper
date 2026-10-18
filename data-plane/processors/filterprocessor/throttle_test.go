@@ -31,7 +31,7 @@ func throttleRuleFor(name, signal string, ratePerSec int, groupBy, condField, co
 // from a burst that arrives faster than tokens refill — and each key's bucket
 // is independent.
 func TestLimiterGroupClampsAndPartitions(t *testing.T) {
-	g := newLimiterGroup(5)
+	g := newLimiterGroup(5, 1)
 
 	for i := 0; i < 5; i++ {
 		if !g.allow("tenant-a") {
@@ -49,7 +49,7 @@ func TestLimiterGroupClampsAndPartitions(t *testing.T) {
 // Generational eviction bounds retention at two generations regardless of
 // how many distinct keys arrive — the millions-of-unique-keys memory case.
 func TestLimiterGroupBoundedUnderKeyChurn(t *testing.T) {
-	g := newLimiterGroup(1)
+	g := newLimiterGroup(1, 1)
 
 	for i := 0; i < 3*maxThrottleKeysPerGeneration; i++ {
 		g.allow(fmt.Sprintf("churn-%d", i))
@@ -67,7 +67,7 @@ func TestLimiterGroupBoundedUnderKeyChurn(t *testing.T) {
 // A key that survives rotation into `prev` keeps its token state when
 // promoted back — no free burst just because the map rotated underneath it.
 func TestLimiterGroupPromotionKeepsState(t *testing.T) {
-	g := newLimiterGroup(1)
+	g := newLimiterGroup(1, 1)
 
 	if !g.allow("hot") {
 		t.Fatal("first hot event denied, want allowed")
@@ -93,7 +93,7 @@ func TestLimiterGroupPromotionKeepsState(t *testing.T) {
 // Oversized group values are truncated before keying the map, so both halves
 // of a pathological value land in one bucket and key memory stays bounded.
 func TestLimiterGroupTruncatesOversizedKeys(t *testing.T) {
-	g := newLimiterGroup(1)
+	g := newLimiterGroup(1, 1)
 
 	long := make([]byte, maxThrottleKeyBytes+512)
 	for i := range long {
@@ -112,7 +112,7 @@ func TestLimiterGroupTruncatesOversizedKeys(t *testing.T) {
 // allow must be race-free under concurrent hot-path use (run with -race) and
 // never admit more than one burst plus negligible refill.
 func TestLimiterGroupConcurrentAllow(t *testing.T) {
-	g := newLimiterGroup(100)
+	g := newLimiterGroup(100, 1)
 
 	var mu sync.Mutex
 	allowed := 0

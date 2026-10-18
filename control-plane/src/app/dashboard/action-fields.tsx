@@ -18,7 +18,7 @@
 // signal (issue #16).
 
 import { useState } from "react";
-import { PolicyAction, SampleScope, TargetSignal } from "@/generated/prisma/enums";
+import { PolicyAction, SampleScope, TargetSignal, ThrottleScope } from "@/generated/prisma/enums";
 import { Field, inputClass } from "./form-ui";
 
 // Suggestions only (datalist allows free text): the destinations the dev
@@ -153,15 +153,43 @@ export function ActionFields({
               className={inputClass}
             />
           </Field>
-          {/* Optional on purpose: blank means one global bucket for the rule
+          {/* Optional on purpose: blank means one bucket for the rule
               instead of a bucket per attribute value — see createRule. */}
           <Field label="Group by attribute">
             <input
               name="throttleGroupBy"
-              placeholder="tenant_id · blank = global"
+              placeholder="tenant_id · blank = all matches"
               className={inputClass}
             />
           </Field>
+          <Field label="Limit applies to">
+            <select
+              name="throttleScope"
+              defaultValue={ThrottleScope.FLEET}
+              className={inputClass}
+            >
+              <option value={ThrottleScope.FLEET}>Whole fleet</option>
+              <option value={ThrottleScope.COLLECTOR}>Each collector</option>
+            </select>
+          </Field>
+          <Field label="Burst (seconds)">
+            <input
+              name="throttleBurstSeconds"
+              type="number"
+              step="1"
+              min="1"
+              max="300"
+              placeholder="1"
+              className={inputClass}
+            />
+          </Field>
+          <p className="col-span-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+            <strong className="font-medium">Whole fleet</strong> splits the rate between the
+            collectors currently reporting, so all of them together admit at most the rate.{" "}
+            <strong className="font-medium">Each collector</strong> gives every collector the
+            full rate: with 3 gateways, up to 3× the rate. Raise the burst if a source sends
+            in large, infrequent batches.
+          </p>
         </div>
       )}
     </>

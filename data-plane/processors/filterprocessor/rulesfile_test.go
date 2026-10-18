@@ -50,6 +50,7 @@ rules:
     action: throttle
     throttle_rate: 100
     throttle_group_by: tenant_id
+    throttle_burst_seconds: 10
     when: { field: tenant_id, op: exists }
   - name: unindex-info
     signal: logs
@@ -103,7 +104,8 @@ func TestParseRulesFileFull(t *testing.T) {
 		t.Errorf("archive-debug destination = %q", got)
 	}
 	capT := byName["cap-tenants"]
-	if capT.ThrottleRate == nil || *capT.ThrottleRate != 100 || capT.ThrottleGroupBy != "tenant_id" || capT.ConditionValue != "" {
+	if capT.ThrottleRate == nil || *capT.ThrottleRate != 100 || capT.ThrottleGroupBy != "tenant_id" || capT.ConditionValue != "" ||
+		capT.ThrottleBurstSeconds == nil || *capT.ThrottleBurstSeconds != 10 {
 		t.Errorf("cap-tenants = %+v", capT)
 	}
 	if byName["drop-cache-misses"].IsActive {
@@ -156,6 +158,8 @@ func TestParseRulesFileRejects(t *testing.T) {
 		{"bad destination", rule("    signal: logs\n    action: route\n    destination: cold storage\n    when: {field: a, op: exists}\n"), "destination is required"},
 		{"missing throttle rate", rule("    signal: logs\n    action: throttle\n    when: {field: a, op: exists}\n"), "throttle_rate is required"},
 		{"bad group by", rule("    signal: logs\n    action: throttle\n    throttle_rate: 5\n    throttle_group_by: 'tenant id'\n    when: {field: a, op: exists}\n"), "throttle_group_by must be an attribute key"},
+		{"burst too big", rule("    signal: logs\n    action: throttle\n    throttle_rate: 5\n    throttle_burst_seconds: 301\n    when: {field: a, op: exists}\n"), "throttle_burst_seconds must be a whole number from 1 to 300"},
+		{"burst on drop", rule("    signal: logs\n    action: drop\n    throttle_burst_seconds: 5\n    when: {field: a, op: exists}\n"), "throttle_burst_seconds only applies to throttle rules"},
 		{"missing field", rule("    signal: traces\n    action: drop\n    when: {op: exists}\n"), "when: field is required"},
 		{"unknown op", rule("    signal: traces\n    action: drop\n    when: {field: a, op: startswith, value: x}\n"), `unknown op "startswith"`},
 		{"missing value", rule("    signal: traces\n    action: drop\n    when: {field: a, op: equals}\n"), "value is required for equals"},

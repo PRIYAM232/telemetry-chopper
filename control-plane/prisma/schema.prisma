@@ -47,6 +47,15 @@ enum SampleScope {
   SPAN
 }
 
+// Whose traffic a THROTTLE rule's rate limits (issue #46). FLEET: all the
+// fleet's collectors together; each enforces rate / active collectors.
+// COLLECTOR: each collector separately, so N collectors admit up to N × the
+// rate. Rules saved before scopes existed are COLLECTOR.
+enum ThrottleScope {
+  FLEET
+  COLLECTOR
+}
+
 enum TargetSignal {
   TRACES
   LOGS
@@ -87,6 +96,7 @@ model CollectorFleet {
   rules   PolicyRule[]
   metrics FleetMetric[]
   ruleMetrics RuleMetric[]
+  collectors  CollectorInstance[]
   pricing    PricingConfig?
   commitment VolumeCommitment?
   egress     EgressConfig?
@@ -121,6 +131,12 @@ model PolicyRule {
   // bucket). NULL/empty means one shared bucket per rule — records missing
   // the attribute share the rule's "default" bucket either way.
   throttleGroupBy String?
+  // Only meaningful for THROTTLE rules (see ThrottleScope). NULL for every
+  // other action; collectors read NULL as COLLECTOR, the pre-scope behavior.
+  throttleScope ThrottleScope?
+  // Only meaningful for THROTTLE rules: seconds of the rate a bucket holds,
+  // so batched sources aren't clamped below the rate. NULL means 1.
+  throttleBurstSeconds Int?
 
   targetSignal TargetSignal
 
@@ -299,4 +315,21 @@ model RuleMetric {
 
   // The dashboard sums a fleet's rows over a time window, grouped by rule.
   @@index([fleetId, createdAt])
+}
+
+// One row per collector process that has heartbeated for a fleet (issue #46),
+// keyed by the collector's service.instance.id. The policy endpoint counts
+// the active ones so fleet-wide THROTTLE rules can split their rate; rows a
+// day stale are pruned on heartbeat.
+model CollectorInstance {
+  fleetId    String         @db.Uuid
+  fleet      CollectorFleet @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  instanceId String
+  // The collector's stats interval: it counts as active until about three
+  // intervals pass without a heartbeat.
+  intervalSeconds Float
+  lastSeenAt      DateTime
+
+  @@id([fleetId, instanceId])
+  @@index([lastSeenAt])
 }

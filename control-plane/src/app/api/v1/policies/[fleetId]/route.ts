@@ -15,6 +15,7 @@
 
 import { createHash } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { countActiveCollectors } from "@/lib/collectors";
 import { authenticateFleet } from "@/lib/fleet-auth";
 import { prisma } from "@/lib/prisma";
 
@@ -36,16 +37,22 @@ export async function GET(
   // A soft-deleted rule (in its undo window, issue #12) is gone as far as
   // collectors are concerned. deletedAt is omitted so the wire format, and
   // therefore the ETag of an unchanged ruleset, is what it was before.
-  const rules = await prisma.policyRule.findMany({
-    where: { fleetId: auth.fleetId, deletedAt: null },
-    orderBy: { createdAt: "asc" },
-    omit: { deletedAt: true },
-  });
+  const [rules, activeCollectors] = await Promise.all([
+    prisma.policyRule.findMany({
+      where: { fleetId: auth.fleetId, deletedAt: null },
+      orderBy: { createdAt: "asc" },
+      omit: { deletedAt: true },
+    }),
+    // What a fleet-wide THROTTLE rule's rate is divided by (issue #46). Part
+    // of the body, so a collector joining or leaving changes the ETag and
+    // every collector re-syncs its share on its next poll.
+    countActiveCollectors(auth.fleetId),
+  ]);
 
   // Serialize once and hash those exact bytes. The ETag, the 304 comparison,
   // and the body the data plane SHA-256s for change detection are then all
   // views of the same string — no risk of a re-serialization differing.
-  const body = JSON.stringify({ fleet_id: auth.fleetId, rules });
+  const body = JSON.stringify({ fleet_id: auth.fleetId, rules, active_collectors: activeCollectors });
   const etag = `"${createHash("sha256").update(body).digest("hex")}"`;
 
   // `no-cache` (not `no-store`): intermediaries may hold the response but

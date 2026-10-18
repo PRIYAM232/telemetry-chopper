@@ -75,26 +75,28 @@ func TestRuleStatusAgreesWithEnforcementGates(t *testing.T) {
 						for _, throttle := range []*int{nil, &zero, &thr} {
 							for _, pattern := range []string{"", "ok.*", "(?=bad)"} {
 								for _, scope := range []string{"", SampleScopeSpan, SampleScopeTrace, "SESSION"} {
-									r := PolicyRule{
-										IsActive: active, Name: "r", ActionType: act, TargetSignal: sig,
-										SampleRate: sampleRate, SampleScope: scope, TargetDestination: dest, ThrottleRate: throttle,
-										ConditionField: "f", ConditionOp: OpEquals, ConditionValue: "v",
+									for _, tscope := range []string{"", ThrottleScopeCollector, ThrottleScopeFleet, "REGION"} {
+										r := PolicyRule{
+											IsActive: active, Name: "r", ActionType: act, TargetSignal: sig,
+											SampleRate: sampleRate, SampleScope: scope, TargetDestination: dest, ThrottleRate: throttle, ThrottleScope: tscope,
+											ConditionField: "f", ConditionOp: OpEquals, ConditionValue: "v",
+										}
+										if pattern != "" {
+											r.ConditionOp, r.ConditionValue = OpRegexMatch, pattern
+										}
+										c := compileRules([]PolicyRule{r}, zap.NewNop())[0]
+										applies := ruleAppliesTraces(&c) || ruleAppliesLogs(&c) || ruleAppliesMetrics(&c)
+										if (c.state == ruleStateEnforced) != applies {
+											t.Fatalf("%+v: state %s but enforced by a gate = %v", r, c.state, applies)
+										}
+										if (c.state == ruleStatePaused) != !active {
+											t.Fatalf("%+v: state %s but isActive = %v", r, c.state, active)
+										}
+										if c.state != ruleStateEnforced && c.state != ruleStatePaused && c.stateReason == "" {
+											t.Fatalf("%+v: state %s without a reason", r, c.state)
+										}
+										n++
 									}
-									if pattern != "" {
-										r.ConditionOp, r.ConditionValue = OpRegexMatch, pattern
-									}
-									c := compileRules([]PolicyRule{r}, zap.NewNop())[0]
-									applies := ruleAppliesTraces(&c) || ruleAppliesLogs(&c) || ruleAppliesMetrics(&c)
-									if (c.state == ruleStateEnforced) != applies {
-										t.Fatalf("%+v: state %s but enforced by a gate = %v", r, c.state, applies)
-									}
-									if (c.state == ruleStatePaused) != !active {
-										t.Fatalf("%+v: state %s but isActive = %v", r, c.state, active)
-									}
-									if c.state != ruleStateEnforced && c.state != ruleStatePaused && c.stateReason == "" {
-										t.Fatalf("%+v: state %s without a reason", r, c.state)
-									}
-									n++
 								}
 							}
 						}
@@ -103,7 +105,7 @@ func TestRuleStatusAgreesWithEnforcementGates(t *testing.T) {
 			}
 		}
 	}
-	if n != 2*4*7*2*2*3*3*4 {
+	if n != 2*4*7*2*2*3*3*4*4 {
 		t.Fatalf("checked %d combinations", n)
 	}
 }

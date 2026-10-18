@@ -174,6 +174,18 @@ const (
 	SampleScopeSpan = "SPAN"
 )
 
+// THROTTLE scopes (issue #46): whose traffic a THROTTLE rule's rate limits.
+const (
+	// ThrottleScopeFleet limits the whole fleet to the rate: each collector
+	// enforces rate / the number of collectors the control plane reports as
+	// active, so the collectors' limits add up to the rate.
+	ThrottleScopeFleet = "FLEET"
+	// ThrottleScopeCollector limits each collector to the full rate — the
+	// original behavior, and what a rule without a scope gets. With N
+	// collectors the fleet admits up to N × the rate.
+	ThrottleScopeCollector = "COLLECTOR"
+)
+
 // Target signals.
 const (
 	SignalTraces  = "TRACES"
@@ -226,8 +238,16 @@ type PolicyRule struct {
 	ThrottleRate *int `json:"throttleRate"`
 	// ThrottleGroupBy is only set for THROTTLE rules: the attribute key whose
 	// value partitions the rule's token buckets (e.g. "tenant_id"). JSON null
-	// leaves the zero string; "" means one shared bucket — a global limit.
+	// leaves the zero string; "" means one shared bucket for every match.
 	ThrottleGroupBy string `json:"throttleGroupBy"`
+	// ThrottleScope is only set for THROTTLE rules: ThrottleScopeFleet or
+	// ThrottleScopeCollector. JSON null leaves the zero string, which means
+	// per collector — the behavior every rule had before scopes existed.
+	ThrottleScope string `json:"throttleScope"`
+	// ThrottleBurstSeconds is only set for THROTTLE rules: how many seconds
+	// of the rate a bucket can hold, so a source that sends in large,
+	// infrequent batches isn't clamped below the rate. Nil means 1.
+	ThrottleBurstSeconds *int `json:"throttleBurstSeconds"`
 
 	TargetSignal string `json:"targetSignal"`
 
@@ -250,4 +270,8 @@ type PolicyRule struct {
 type FleetPolicyResponse struct {
 	FleetID string       `json:"fleet_id"`
 	Rules   []PolicyRule `json:"rules"`
+	// ActiveCollectors is how many collectors the control plane has heard a
+	// heartbeat from recently: the N a fleet-wide THROTTLE rule divides its
+	// rate by. Absent (older control plane) or 0 reads as 1 — this collector.
+	ActiveCollectors int `json:"active_collectors"`
 }

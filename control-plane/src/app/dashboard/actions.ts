@@ -13,7 +13,13 @@
 // session before mutating — see the Next.js data-security guide.
 
 import { revalidatePath } from "next/cache";
-import { ConditionOp, PolicyAction, SampleScope, TargetSignal } from "@/generated/prisma/enums";
+import {
+  ConditionOp,
+  PolicyAction,
+  SampleScope,
+  TargetSignal,
+  ThrottleScope,
+} from "@/generated/prisma/enums";
 import { IGNORE_CASE_OPS, NUMERIC_OPS } from "@/lib/conditions";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
@@ -144,12 +150,27 @@ export async function createRule(
 
   // throttleRate is only meaningful for THROTTLE; the data plane skips
   // THROTTLE rules without a positive rate, so require one here rather than
-  // ship a dead rule. throttleGroupBy is optional: blank means one global
-  // bucket instead of a bucket per attribute value, and records missing the
+  // ship a dead rule. throttleGroupBy is optional: blank means one shared
+  // bucket for every match instead of a bucket per attribute value, and records missing the
   // attribute fall back to the rule's shared default bucket either way.
   let throttleRate: number | null = null;
   let throttleGroupBy: string | null = null;
+  let throttleScope: ThrottleScope | null = null;
+  let throttleBurstSeconds: number | null = null;
   if (actionType === PolicyAction.THROTTLE) {
+    // Fleet-wide by default (issue #46): "100/s" should mean 100/s however
+    // many gateway replicas share the traffic.
+    const scope = formString(formData, "throttleScope") || ThrottleScope.FLEET;
+    if (!isEnumValue(ThrottleScope, scope)) return fail("invalid throttle scope");
+    throttleScope = scope;
+    // Optional; blank is the data plane's default of one second.
+    const burst = formString(formData, "throttleBurstSeconds");
+    if (burst) {
+      throttleBurstSeconds = Number(burst);
+      if (!Number.isInteger(throttleBurstSeconds) || throttleBurstSeconds < 1 || throttleBurstSeconds > 300) {
+        return fail("burst must be a whole number of seconds in [1, 300]");
+      }
+    }
     throttleRate = Number(formString(formData, "throttleRate"));
     if (
       !Number.isInteger(throttleRate) ||
@@ -184,6 +205,8 @@ export async function createRule(
       targetDestination,
       throttleRate,
       throttleGroupBy,
+      throttleScope,
+      throttleBurstSeconds,
       targetSignal,
       conditionField,
       conditionOp,

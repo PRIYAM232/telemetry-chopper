@@ -16,7 +16,8 @@
 # Plus, by action:
 #   sample:   sample_rate (fraction to keep), sample_scope: trace (default) | span
 #   route:    destination (a routing connector table entry)
-#   throttle: throttle_rate (records per second), throttle_group_by (optional)
+#   throttle: throttle_rate (records per second), throttle_group_by and
+#             throttle_burst_seconds (optional)
 
 rules:
   # Health checks are pure noise in most trace backends.
