@@ -19,7 +19,8 @@
 //     "metrics_forwarded_bytes": int64,
 //     "traces_unindexed": int64, "logs_unindexed": int64,
 //     "rules": [ { "rule_id": uuid, "matched": int64, "dropped": int64,
-//                  "dropped_bytes": int64, "unindexed": int64 }, ... ]
+//                  "dropped_bytes": int64, "unindexed": int64,
+//                  "evaluated": int64 }, ... ]
 //   }
 //
 // "rules" (issue #14) attributes the interval to individual rules; the
@@ -90,6 +91,7 @@ type RuleEntry = {
   dropped: number;
   droppedBytes: bigint;
   unindexed: number;
+  evaluated: number;
 };
 
 // Parses the optional "rules" array. Returns null when it is present but
@@ -105,11 +107,20 @@ function parseRuleEntries(value: unknown): RuleEntry[] | null {
     const matched = asCount(e.matched);
     const dropped = asCount(e.dropped);
     const unindexed = asCount(e.unindexed);
+    // Sent by span-scoped SAMPLE rules (issue #45); absent from older
+    // collectors, which reads as 0.
+    const evaluated = asCount(e.evaluated);
     const droppedBytes = asBytes(e.dropped_bytes);
-    if (matched === null || dropped === null || unindexed === null || droppedBytes === null) {
+    if (
+      matched === null ||
+      dropped === null ||
+      unindexed === null ||
+      evaluated === null ||
+      droppedBytes === null
+    ) {
       return null;
     }
-    entries.push({ ruleId: e.rule_id, matched, dropped, droppedBytes, unindexed });
+    entries.push({ ruleId: e.rule_id, matched, dropped, droppedBytes, unindexed, evaluated });
   }
   return entries;
 }
@@ -175,7 +186,7 @@ export async function POST(
   const ruleEntries = parseRuleEntries(payload.rules);
   if (ruleEntries === null) {
     return NextResponse.json(
-      { error: "rules must be an array of { rule_id, matched, dropped, dropped_bytes, unindexed } with non-negative integer counts" },
+      { error: "rules must be an array of { rule_id, matched, dropped, dropped_bytes, unindexed, evaluated? } with non-negative integer counts" },
       { status: 400 },
     );
   }

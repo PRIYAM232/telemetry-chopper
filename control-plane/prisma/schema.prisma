@@ -37,6 +37,16 @@ enum PolicyAction {
   EXCLUDE_INDEX
 }
 
+// Which spans a SAMPLE rule's keep-or-drop verdict applies to (issue #45).
+// TRACE: every span, condition not consulted, so traces are kept or dropped
+// whole. SPAN: only spans matching the condition; a trace's unmatched spans
+// survive a drop verdict and lose their parents. Rules saved before scopes
+// existed are SPAN.
+enum SampleScope {
+  TRACE
+  SPAN
+}
+
 enum TargetSignal {
   TRACES
   LOGS
@@ -91,6 +101,9 @@ model PolicyRule {
   // Only meaningful for SAMPLE rules: fraction of matching telemetry to keep,
   // in [0, 1]. NULL for DROP/REDACT/ROUTE.
   sampleRate Float?
+  // Only meaningful for SAMPLE rules (see SampleScope). NULL for every other
+  // action; collectors read NULL as SPAN, the pre-scope behavior.
+  sampleScope SampleScope?
   // Only meaningful for ROUTE rules: the downstream exporter identifier the
   // routing connector keys on (e.g. "cold-storage", "premium-analytics").
   // NULL for every other action. A ROUTE rule without one is malformed and
@@ -270,6 +283,10 @@ model RuleMetric {
   droppedBytes BigInt
   // Records this EXCLUDE_INDEX rule kept out of the vendor's index.
   unindexed    Int
+  // Spans a span-scoped SAMPLE rule evaluated, matched or not (issue #45):
+  // matched / evaluated is the share of spans its condition covers. 0 for
+  // every other rule and from collectors that predate it.
+  evaluated    Int @default(0)
 
   createdAt DateTime @default(now())
 

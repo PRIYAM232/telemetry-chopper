@@ -9,7 +9,7 @@ Below each rule's condition, a counts line covers the time range selected above 
 | Action | The counts line shows |
 |---|---|
 | DROP | Records matched and dropped, the bytes dropped, the rule's share of all drops in the fleet, and what it saved |
-| SAMPLE | As DROP, plus the percentage of matches **sampled out** |
+| SAMPLE | As DROP, plus the percentage of matches **sampled out**. A whole-trace SAMPLE rule matches every span. |
 | THROTTLE | As DROP, plus the percentage of matches **over the limit** |
 | EXCLUDE_INDEX | Records matched, records **kept out of the index**, and what it saved |
 | REDACT, ROUTE | Records matched |
@@ -31,6 +31,19 @@ An amber **no matches in the last 24 hours** badge (or **no matches yet** under 
 The badge appears only for active, enforced rules that are more than a minute old, so a rule you just created isn't flagged before collectors have reported on it.
 
 To fix a silent rule, check the field name and value against a real record in your vendor or in the collector's debug output.
+
+## Find SAMPLE rules that break traces
+
+A SAMPLE rule that applies to **Matching spans only** keeps the spans its condition misses, even when the rest of their trace is sampled out. Its card shows:
+
+| Badge | Meaning |
+|---|---|
+| **matching spans only** | The rule samples only matching spans. Fine when every span of the traces it samples matches the condition. |
+| **misses N% of spans · may break traces** | Collectors saw spans this rule's condition didn't match in the selected time range. Traces it sampled out can have spans whose parent is missing. |
+
+To fix it, create a SAMPLE rule that applies to **Whole traces** and delete the old one, or create one with a condition every span has. See [Sample whole traces](README.md#sample-whole-traces).
+
+The percentage counts every span the rule evaluated, including spans from traces that don't involve the rule at all, so treat it as a sign to check your traces rather than an exact share of broken traces.
 
 ## Find rules that aren't enforced
 

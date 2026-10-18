@@ -11,7 +11,7 @@
 // the next rule, every typed field clears (issue #16).
 
 import { startTransition, useActionState, useEffect, useRef, useState } from "react";
-import { ConditionOp } from "@/generated/prisma/enums";
+import { ConditionOp, PolicyAction, SampleScope } from "@/generated/prisma/enums";
 import { ActionFields } from "./action-fields";
 import { createRule, type CreateRuleState } from "./actions";
 import { Field, inputClass } from "./form-ui";
@@ -23,6 +23,11 @@ export function CreateRuleForm({ fleetId }: { fleetId: string }) {
   const formRef = useRef<HTMLFormElement>(null);
   // Controlled so the post-save reset keeps it, like Action and Signal.
   const [conditionOp, setConditionOp] = useState<string>(ConditionOp.EQUALS);
+  // Lifted out of ActionFields: a whole-trace SAMPLE rule has no condition
+  // (issue #45), so the Condition inputs below depend on both.
+  const [action, setAction] = useState<string>(PolicyAction.DROP);
+  const [sampleScope, setSampleScope] = useState<string>(SampleScope.TRACE);
+  const hasCondition = !(action === PolicyAction.SAMPLE && sampleScope === SampleScope.TRACE);
 
   useEffect(() => {
     // Every completed submission returns a fresh state object, so this runs
@@ -63,34 +68,41 @@ export function CreateRuleForm({ fleetId }: { fleetId: string }) {
       {/* Action + signal selects and the action-specific inputs
           (sample rate, route destination) — the extra input only appears
           for the action that needs it. */}
-      <ActionFields />
-      <Field label="Condition">
-        <div className="flex flex-col gap-2">
-          <input
-            name="conditionField"
-            required
-            placeholder="http.status_code"
-            className={inputClass}
-          />
-          <div className="grid grid-cols-2 gap-2">
-            <select
-              name="conditionOp"
-              value={conditionOp}
-              onChange={(e) => setConditionOp(e.target.value)}
-              className={inputClass}
-            >
-              {Object.values(ConditionOp).map((op) => (
-                <option key={op} value={op}>{op}</option>
-              ))}
-            </select>
+      <ActionFields
+        action={action}
+        onActionChange={setAction}
+        sampleScope={sampleScope}
+        onSampleScopeChange={setSampleScope}
+      />
+      {hasCondition && (
+        <Field label="Condition">
+          <div className="flex flex-col gap-2">
             <input
-              name="conditionValue"
-              placeholder="404 · regex for REGEX_MATCH · blank for EXISTS"
+              name="conditionField"
+              required
+              placeholder="http.status_code"
               className={inputClass}
             />
+            <div className="grid grid-cols-2 gap-2">
+              <select
+                name="conditionOp"
+                value={conditionOp}
+                onChange={(e) => setConditionOp(e.target.value)}
+                className={inputClass}
+              >
+                {Object.values(ConditionOp).map((op) => (
+                  <option key={op} value={op}>{op}</option>
+                ))}
+              </select>
+              <input
+                name="conditionValue"
+                placeholder="404 · regex for REGEX_MATCH · blank for EXISTS"
+                className={inputClass}
+              />
+            </div>
           </div>
-        </div>
-      </Field>
+        </Field>
+      )}
       {state.error && (
         <p
           role="alert"

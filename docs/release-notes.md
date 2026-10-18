@@ -1,5 +1,18 @@
 # Release notes
 
+## October 17, 2026
+
+### New
+
+- **Whole-trace sampling.** SAMPLE rules have a new **Applies to** setting. **Whole traces**, the default for new rules, keeps or drops every span of a trace together, so sampling never leaves spans whose parent is missing. **Matching spans only** keeps the previous behavior. See [Sample whole traces](rules/README.md#sample-whole-traces).
+- **Broken-trace warning.** A SAMPLE rule that applies to matching spans only shows **misses N% of spans · may break traces** when its condition misses spans. See [Find SAMPLE rules that break traces](rules/monitor-rule-activity.md#find-sample-rules-that-break-traces).
+
+### Changed
+
+- Existing SAMPLE rules apply to matching spans only, as before.
+- Collectors report a new `evaluated` count per rule in their heartbeat, and a new `sample_scope_not_supported` reason in `otelcol_chopper_filter_rule_status`.
+- Upgrade collectors before creating whole-trace SAMPLE rules. Older collectors don't apply them.
+
 ## October 2, 2026
 
 ### New

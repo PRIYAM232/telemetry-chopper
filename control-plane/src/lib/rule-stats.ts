@@ -13,9 +13,17 @@ export type RuleStats = {
   dropped: number;
   droppedBytes: number;
   unindexed: number;
+  // Spans a span-scoped SAMPLE rule evaluated (issue #45); 0 for other rules.
+  evaluated: number;
 };
 
-export const EMPTY_RULE_STATS: RuleStats = { matched: 0, dropped: 0, droppedBytes: 0, unindexed: 0 };
+export const EMPTY_RULE_STATS: RuleStats = {
+  matched: 0,
+  dropped: 0,
+  droppedBytes: 0,
+  unindexed: 0,
+  evaluated: 0,
+};
 
 // Sums each rule's rows since `since` (all time when null). Rules with no
 // rows in the window are absent from the map: they matched nothing.
@@ -26,7 +34,7 @@ export async function getRuleStats(
   const rows = await prisma.ruleMetric.groupBy({
     by: ["ruleId"],
     where: { fleetId, ...(since === null ? {} : { createdAt: { gte: since } }) },
-    _sum: { matched: true, dropped: true, droppedBytes: true, unindexed: true },
+    _sum: { matched: true, dropped: true, droppedBytes: true, unindexed: true, evaluated: true },
   });
   return new Map(
     rows.map((r) => [
@@ -37,6 +45,7 @@ export async function getRuleStats(
         // BIGINT sums arrive as bigint; Number() is exact below 9 PB.
         droppedBytes: Number(r._sum.droppedBytes ?? 0),
         unindexed: r._sum.unindexed ?? 0,
+        evaluated: r._sum.evaluated ?? 0,
       },
     ]),
   );

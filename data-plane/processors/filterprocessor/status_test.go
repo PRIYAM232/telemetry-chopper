@@ -39,6 +39,12 @@ func TestRuleStatusStatesAndReasons(t *testing.T) {
 		{"sample without rate", with(func(r *PolicyRule) { r.ActionType, r.TargetSignal = ActionSample, SignalTraces }), ruleStateInvalid, reasonMissingSampleRate},
 		{"route without destination", with(func(r *PolicyRule) { r.ActionType, r.TargetSignal = ActionRoute, SignalMetrics }), ruleStateInvalid, reasonMissingDestination},
 		{"throttle with zero rate", with(func(r *PolicyRule) { r.ActionType, r.TargetSignal, r.ThrottleRate = ActionThrottle, SignalLogs, &zero }), ruleStateInvalid, reasonMissingRate},
+		{"sample with a scope from a newer control plane", with(func(r *PolicyRule) {
+			r.ActionType, r.TargetSignal, r.SampleRate, r.SampleScope = ActionSample, SignalTraces, &rate, "SESSION"
+		}), ruleStateUnsupported, reasonSampleScope},
+		{"whole-trace sample", with(func(r *PolicyRule) {
+			r.ActionType, r.TargetSignal, r.SampleRate, r.SampleScope = ActionSample, SignalTraces, &rate, SampleScopeTrace
+		}), ruleStateEnforced, ""},
 		{"sample on logs", with(func(r *PolicyRule) { r.ActionType, r.TargetSignal, r.SampleRate = ActionSample, SignalLogs, &rate }), ruleStateUnsupported, reasonActionNotSupported},
 		{"redact on metrics", with(func(r *PolicyRule) { r.ActionType, r.TargetSignal = ActionRedact, SignalMetrics }), ruleStateUnsupported, reasonActionNotSupported},
 		{"exclude_index on metrics", with(func(r *PolicyRule) { r.ActionType, r.TargetSignal = ActionExcludeIndex, SignalMetrics }), ruleStateUnsupported, reasonActionNotSupported},
@@ -68,26 +74,28 @@ func TestRuleStatusAgreesWithEnforcementGates(t *testing.T) {
 					for _, dest := range []string{"", "cold"} {
 						for _, throttle := range []*int{nil, &zero, &thr} {
 							for _, pattern := range []string{"", "ok.*", "(?=bad)"} {
-								r := PolicyRule{
-									IsActive: active, Name: "r", ActionType: act, TargetSignal: sig,
-									SampleRate: sampleRate, TargetDestination: dest, ThrottleRate: throttle,
-									ConditionField: "f", ConditionOp: OpEquals, ConditionValue: "v",
+								for _, scope := range []string{"", SampleScopeSpan, SampleScopeTrace, "SESSION"} {
+									r := PolicyRule{
+										IsActive: active, Name: "r", ActionType: act, TargetSignal: sig,
+										SampleRate: sampleRate, SampleScope: scope, TargetDestination: dest, ThrottleRate: throttle,
+										ConditionField: "f", ConditionOp: OpEquals, ConditionValue: "v",
+									}
+									if pattern != "" {
+										r.ConditionOp, r.ConditionValue = OpRegexMatch, pattern
+									}
+									c := compileRules([]PolicyRule{r}, zap.NewNop())[0]
+									applies := ruleAppliesTraces(&c) || ruleAppliesLogs(&c) || ruleAppliesMetrics(&c)
+									if (c.state == ruleStateEnforced) != applies {
+										t.Fatalf("%+v: state %s but enforced by a gate = %v", r, c.state, applies)
+									}
+									if (c.state == ruleStatePaused) != !active {
+										t.Fatalf("%+v: state %s but isActive = %v", r, c.state, active)
+									}
+									if c.state != ruleStateEnforced && c.state != ruleStatePaused && c.stateReason == "" {
+										t.Fatalf("%+v: state %s without a reason", r, c.state)
+									}
+									n++
 								}
-								if pattern != "" {
-									r.ConditionOp, r.ConditionValue = OpRegexMatch, pattern
-								}
-								c := compileRules([]PolicyRule{r}, zap.NewNop())[0]
-								applies := ruleAppliesTraces(&c) || ruleAppliesLogs(&c) || ruleAppliesMetrics(&c)
-								if (c.state == ruleStateEnforced) != applies {
-									t.Fatalf("%+v: state %s but enforced by a gate = %v", r, c.state, applies)
-								}
-								if (c.state == ruleStatePaused) != !active {
-									t.Fatalf("%+v: state %s but isActive = %v", r, c.state, active)
-								}
-								if c.state != ruleStateEnforced && c.state != ruleStatePaused && c.stateReason == "" {
-									t.Fatalf("%+v: state %s without a reason", r, c.state)
-								}
-								n++
 							}
 						}
 					}
@@ -95,7 +103,7 @@ func TestRuleStatusAgreesWithEnforcementGates(t *testing.T) {
 			}
 		}
 	}
-	if n != 2*4*7*2*2*3*3 {
+	if n != 2*4*7*2*2*3*3*4 {
 		t.Fatalf("checked %d combinations", n)
 	}
 }
