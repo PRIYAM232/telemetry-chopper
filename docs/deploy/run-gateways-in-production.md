@@ -92,7 +92,7 @@ Exporters batch in their own sending queue (`sending_queue.batch`), which upstre
 
 ### How was this tested?
 
-With a gateway's backend down, a gateway that was SIGKILLed while holding 2,148 spans delivered all 2,148 after restarting, with no duplicates. With in-memory queues it delivered none. Under a flood into a 128 MB container, a gateway without `memory_limiter` was OOM-killed within 5 seconds. With it, the gateway stayed up and refused data.
+With a gateway's backend down, a gateway that was SIGKILLed while holding 2,148 spans delivered all 2,148 after restarting, with no duplicates. With in-memory queues it delivered none. In the [pilot rehearsal](../../deploy/pilot/README.md#reference-results), a gateway killed during a Tempo outage delivered all 2,756 spans it held once Tempo was back. Under a flood into a 128 MB container, a gateway without `memory_limiter` was OOM-killed within 5 seconds. With it, the gateway stayed up and refused data.
 
 ### Does the memory limiter work with several gateway replicas?
 

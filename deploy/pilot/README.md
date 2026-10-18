@@ -151,6 +151,7 @@ From a run on an 8-core, 16 GB laptop (Docker given 8 GB), with 10 Locust users 
 |---|---|
 | PII | Raw card numbers, CVVs and emails reached Tempo before the rules; afterwards every value was masked, keeping the last four card digits. |
 | Gateway crash (SIGKILL) | Traffic moved to one gateway in 15–30 s, with no gap in Tempo. The agent dropped 44 of 41,766 records (0.1%), and whatever the killed gateway held in memory was lost. |
+| Gateway crash while Tempo is down (issue #48) | Tempo stopped for 45 s, then the agent drained and stopped. Gateway-2 held 2,756 spans in its disk queue when it was SIGKILLed. After a restart it sent exactly those 2,756 to Tempo; gateway-1 sent its 3,186. Nothing lost, nothing duplicated. |
 | Control plane down 90 s | Rules and drop rates unchanged throughout. Gateways' own counters showed 8,919 spans dropped and the control plane stored 9,169; the difference is where the window boundaries fall. |
 | Flood (2× traffic) | 250 spans/s and 53 logs/s at 0.1 cores and 110 MB per gateway; zero export failures. |
 
