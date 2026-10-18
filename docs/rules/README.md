@@ -57,13 +57,23 @@ A condition compares one field with a value: `<field> <operator> <value>`.
 | `CONTAINS` | contains the value. |
 | `REGEX_MATCH` | matches the regular expression. Patterns use RE2 syntax, so lookarounds and backreferences aren't supported. The dashboard rejects patterns RE2 can't compile. |
 | `GREATER_THAN` | is a number greater than the value. |
+| `LESS_THAN` | is a number less than the value. |
 | `EXISTS` | is present (the value is ignored). |
+
+The dashboard rejects a `GREATER_THAN` or `LESS_THAN` value that isn't a number.
+
+### Ignore case
+
+`EQUALS`, `CONTAINS` and `REGEX_MATCH` are case-sensitive unless you select **Ignore case**. Telemetry often spells the same value differently depending on the SDK, so `log.severity` `EQUALS` `INFO` misses `info`. With **Ignore case**, `EQUALS` `INFO` matches `INFO`, `info` and `Info`, `CONTAINS` `timeout` matches `Upstream TIMEOUT`, and a REDACT rule with `REGEX_MATCH` masks every casing of the match. The rule card shows **ignore case** after the condition.
+
+**Ignore case** compares whole values, so `EQUALS` `info` still doesn't match `Information`. To match every spelling of a log level, use `log.severity_number` instead.
 
 The field is looked up on the record's attributes first, then on its resource attributes (for example `service.name`). A few special fields read the record itself:
 
 | Field | Signal | Reads |
 |---|---|---|
-| `log.severity` | Logs | The severity text, such as `ERROR`. SDKs spell levels differently (`INFO`, `info`, `Information`), so prefer `REGEX_MATCH` with `(?i)`, for example `(?i)^info`. |
+| `log.severity` | Logs | The severity text, such as `ERROR`. SDKs spell levels differently (`INFO`, `info`, `Information`), so select **Ignore case**, or use `log.severity_number`. |
+| `log.severity_number` | Logs | The severity number, which SDKs set consistently: 1–4 TRACE, 5–8 DEBUG, 9–12 INFO, 13–16 WARN, 17–20 ERROR, 21–24 FATAL. For example, `LESS_THAN` `13` matches INFO and below, and `GREATER_THAN` `16` matches ERROR and above. Records without a severity number don't match. |
 | `log.body` | Logs | The log message body |
 | `metric.name` | Metrics | The metric name, such as `http.server.duration` |
 
@@ -113,6 +123,14 @@ Not as whole traces. A collector decides on each span as it arrives, and a trace
 ### What happens to a whole-trace SAMPLE rule on an older collector?
 
 Collectors released before October 17, 2026 don't know the setting, so they don't apply the rule, and its card shows **no matches**. Upgrade your collectors before you create whole-trace SAMPLE rules.
+
+### How do I drop debug and info logs from every service?
+
+Create a DROP rule for **LOGS** on `log.severity_number` `LESS_THAN` `13`. It matches TRACE, DEBUG and INFO records however each SDK spells the level.
+
+### What happens to an ignore-case or LESS_THAN rule on an older collector?
+
+Collectors released before October 18, 2026 compare case-sensitively and don't know `LESS_THAN` or `log.severity_number`, so those rules match less, or nothing. Upgrade your collectors before you create them.
 
 ### Why does a ROUTE rule move records I didn't match?
 

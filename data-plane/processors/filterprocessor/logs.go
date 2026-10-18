@@ -18,6 +18,11 @@ import (
 const (
 	fieldLogSeverity = "log.severity"
 	fieldLogBody     = "log.body"
+	// fieldLogSeverityNumber is the record's numeric SeverityNumber (1-24,
+	// TRACE=1 ... INFO=9-12, WARN=13-16, ERROR=17-20, FATAL=21-24), which
+	// SDKs set consistently where the severity text varies (issue #47).
+	// UNSPECIFIED (0) counts as absent.
+	fieldLogSeverityNumber = "log.severity_number"
 )
 
 // logsProcessor filters log records against the dynamic ruleset held by the
@@ -231,6 +236,9 @@ func logConditionMatches(rule *compiledRule, lr plog.LogRecord, resAttrs pcommon
 	case fieldLogBody:
 		body := lr.Body()
 		return body.Type() != pcommon.ValueTypeEmpty && matchConditionValue(rule, body)
+	case fieldLogSeverityNumber:
+		n := int64(lr.SeverityNumber())
+		return n != 0 && matchConditionNumber(rule, n)
 	}
 
 	val, ok := lr.Attributes().Get(rule.ConditionField)
@@ -272,6 +280,10 @@ func (p *logsProcessor) redactLogField(rule *compiledRule, lr plog.LogRecord, re
 		} else {
 			lr.Body().SetStr(redactedPlaceholder)
 		}
+	case fieldLogSeverityNumber:
+		// A closed enum has no partial form and no string mask; UNSPECIFIED
+		// is the "no value" the field can hold.
+		lr.SetSeverityNumber(plog.SeverityNumberUnspecified)
 	default:
 		target := lr.Attributes()
 		val, ok := target.Get(rule.ConditionField)

@@ -157,8 +157,12 @@ const (
 const (
 	OpEquals      = "EQUALS"
 	OpGreaterThan = "GREATER_THAN"
-	OpContains    = "CONTAINS"
-	OpExists      = "EXISTS"
+	// OpLessThan is GREATER_THAN's mirror: the field is a number below the
+	// value. Added with log.severity_number (issue #47) so "INFO and below"
+	// (severity number < 13) is expressible.
+	OpLessThan = "LESS_THAN"
+	OpContains = "CONTAINS"
+	OpExists   = "EXISTS"
 	// OpRegexMatch matches when the rule's conditionValue, treated as a Go
 	// regexp, finds at least one match in the field. Patterns are compiled
 	// once at ruleset-publication time (compileRules), never on the consume
@@ -202,6 +206,11 @@ type PolicyRule struct {
 	ConditionField string `json:"conditionField"`
 	ConditionOp    string `json:"conditionOp"`
 	ConditionValue string `json:"conditionValue"`
+	// ConditionIgnoreCase makes EQUALS, CONTAINS and REGEX_MATCH compare
+	// case-insensitively (Unicode simple case folding), so one rule matches
+	// INFO, info and Info (issue #47). Ignored by the other operators. A
+	// control plane that predates it omits the key, which reads as false.
+	ConditionIgnoreCase bool `json:"conditionIgnoreCase"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`

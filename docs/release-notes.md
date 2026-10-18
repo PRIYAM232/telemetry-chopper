@@ -1,5 +1,17 @@
 # Release notes
 
+## October 18, 2026
+
+### New
+
+- **Ignore case.** `EQUALS`, `CONTAINS` and `REGEX_MATCH` conditions have an **Ignore case** option, so one rule matches `INFO`, `info` and `Info`. See [Ignore case](rules/README.md#ignore-case).
+- **Severity number.** Log rules can match `log.severity_number`, which every SDK sets the same way, and the new `LESS_THAN` operator, for example `log.severity_number` `LESS_THAN` `13` for INFO and below. See [Conditions](rules/README.md#conditions).
+
+### Changed
+
+- The dashboard rejects `GREATER_THAN` and `LESS_THAN` values that aren't numbers. Collectors previously never matched such rules.
+- Upgrade collectors before creating ignore-case, `LESS_THAN` or `log.severity_number` rules. Older collectors match them case-sensitively or not at all.
+
 ## October 17, 2026
 
 ### New
