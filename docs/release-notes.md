@@ -16,6 +16,7 @@
 
 ### New
 
+- **Installable collector packages.** Each release now publishes `otelcol-chopper` as `.deb` and `.rpm` packages that install a hardened systemd service with config and rules in `/etc/telemetry-chopper/`, as archives for Linux, macOS and Windows, and as a Homebrew cask, with Sigstore-signed checksums and SBOMs. See [Install the collector](deploy/install-the-collector.md).
 - **Standalone mode with a rules file.** The collector can read its rules from a YAML file instead of the control plane, so a single `otelcol-chopper` filters telemetry on its own. Edits apply within seconds without a restart, `otelcol-chopper validate` checks the file, and a broken edit keeps the previous rules. See [Run without the control plane](rules/rules-file.md).
 - **Whole-trace sampling.** SAMPLE rules have a new **Applies to** setting. **Whole traces**, the default for new rules, keeps or drops every span of a trace together, so sampling never leaves spans whose parent is missing. **Matching spans only** keeps the previous behavior. See [Sample whole traces](rules/README.md#sample-whole-traces).
 - **Broken-trace warning.** A SAMPLE rule that applies to matching spans only shows **misses N% of spans · may break traces** when its condition misses spans. See [Find SAMPLE rules that break traces](rules/monitor-rule-activity.md#find-sample-rules-that-break-traces).

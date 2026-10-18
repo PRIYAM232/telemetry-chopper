@@ -31,6 +31,7 @@ Telemetry Chopper measures the bytes and events your rules keep away from your v
 
 ## Deploy Telemetry Chopper
 
+- [Install the collector](deploy/install-the-collector.md): .deb and .rpm packages with a systemd service, archives for Linux, macOS and Windows, and Homebrew.
 - [Run gateways in production](deploy/run-gateways-in-production.md): limit memory use and keep queued telemetry across crashes and restarts.
 
 ## Monitor Telemetry Chopper

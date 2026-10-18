@@ -1,0 +1,40 @@
+[Unit]
+Description=Telemetry Chopper collector (otelcol-chopper)
+Documentation=https://github.com/PRIYAM232/telemetry-chopper
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/telemetry-chopper/telemetry-chopper.conf
+ExecStart=/usr/bin/otelcol-chopper $OTELCOL_OPTIONS
+# The collector re-reads its configuration on SIGHUP. Rules-file edits need
+# no reload at all. The shell's built-in kill, because /bin/kill comes from
+# procps, which minimal Debian and Ubuntu installs don't have.
+ExecReload=/bin/sh -c 'kill -HUP ${MAINPID}'
+User=telemetry-chopper
+Group=telemetry-chopper
+Restart=on-failure
+RestartSec=5s
+KillMode=mixed
+TimeoutStopSec=30s
+
+# Writable state for exporters' persistent queues (file_storage):
+# /var/lib/telemetry-chopper.
+StateDirectory=telemetry-chopper
+StateDirectoryMode=0750
+
+# Hardening: the collector only reads its config and talks to the network.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target
