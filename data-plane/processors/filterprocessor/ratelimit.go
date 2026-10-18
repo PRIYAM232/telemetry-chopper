@@ -1,6 +1,7 @@
 package filterprocessor
 
 import (
+	"math"
 	"sync"
 
 	"golang.org/x/time/rate"
@@ -22,8 +23,7 @@ import (
 const (
 	// throttleDefaultKey is the bucket used when the record does not carry
 	// the rule's throttleGroupBy attribute at all — and, for rules with no
-	// throttleGroupBy, the single shared bucket that makes the rule a global
-	// rate limit.
+	// throttleGroupBy, the single shared bucket every match draws from.
 	throttleDefaultKey = "default"
 
 	// maxThrottleKeysPerGeneration bounds one generation of a group's key
@@ -61,14 +61,15 @@ type limiterGroup struct {
 	prev map[string]*rate.Limiter
 }
 
-// newLimiterGroup builds the group for one THROTTLE rule. Burst equals the
-// rate — one second's worth of headroom — so short spikes inside a healthy
-// second pass while sustained overload clamps to eventsPerSec. Callers
-// guarantee eventsPerSec > 0 (ruleApplies* skips rate-less rules).
-func newLimiterGroup(eventsPerSec int) *limiterGroup {
+// newLimiterGroup builds the group for one THROTTLE rule. Each bucket holds
+// burstSeconds of the rate (at least one event), so spikes inside a healthy
+// window pass while sustained overload clamps to eventsPerSec. The rate is
+// fractional for a fleet-wide rule split across collectors. Callers
+// guarantee eventsPerSec > 0 and burstSeconds >= 1 (compileRules).
+func newLimiterGroup(eventsPerSec float64, burstSeconds int) *limiterGroup {
 	return &limiterGroup{
 		limit: rate.Limit(eventsPerSec),
-		burst: eventsPerSec,
+		burst: max(1, int(math.Ceil(eventsPerSec*float64(burstSeconds)))),
 		cur:   make(map[string]*rate.Limiter),
 	}
 }

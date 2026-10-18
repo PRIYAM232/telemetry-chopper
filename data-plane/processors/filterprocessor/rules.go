@@ -79,6 +79,10 @@ type compiledRule struct {
 	// immutable-by-convention.
 	limiters *limiterGroup
 
+	// collectorRate is the THROTTLE rate this collector enforces: the rule's
+	// rate, or its share of it for a fleet-wide rule. Kept for the sync log.
+	collectorRate float64
+
 	// state and stateReason are the rule's enforcement status (status.go),
 	// classified once here so the sync log, the rule_status gauge and the
 	// sync warnings all agree.
@@ -105,6 +109,14 @@ type compiledRule struct {
 // paths. A pattern that fails to compile disables its rule with one warning
 // here instead of a per-record error storm at evaluation time.
 func compileRules(rules []PolicyRule, logger *zap.Logger) []compiledRule {
+	return compileRulesForFleet(rules, 1, logger)
+}
+
+// compileRulesForFleet is compileRules for a fleet the control plane reports
+// activeCollectors for: a fleet-wide THROTTLE rule enforces its rate divided
+// by that many collectors here (issue #46). Fewer than one reads as one.
+func compileRulesForFleet(rules []PolicyRule, activeCollectors int, logger *zap.Logger) []compiledRule {
+	activeCollectors = max(1, activeCollectors)
 	compiled := make([]compiledRule, len(rules))
 	for i := range rules {
 		compiled[i] = compiledRule{PolicyRule: rules[i], stats: newRuleCounters(&rules[i])}
@@ -119,8 +131,18 @@ func compileRules(rules []PolicyRule, logger *zap.Logger) []compiledRule {
 		if rules[i].ActionType == ActionThrottle {
 			// A missing rate is reported by the sync's per-rule "not
 			// enforced" warning (status.go), like every other invalid rule.
-			if rules[i].ThrottleRate != nil && *rules[i].ThrottleRate > 0 {
-				compiled[i].limiters = newLimiterGroup(*rules[i].ThrottleRate)
+			// A scope from a newer control plane is skipped the same way.
+			if rules[i].ThrottleRate != nil && *rules[i].ThrottleRate > 0 && throttleScopeKnown(rules[i].ThrottleScope) {
+				r := float64(*rules[i].ThrottleRate)
+				if rules[i].ThrottleScope == ThrottleScopeFleet {
+					r /= float64(activeCollectors)
+				}
+				burst := 1
+				if b := rules[i].ThrottleBurstSeconds; b != nil && *b > 1 {
+					burst = *b
+				}
+				compiled[i].collectorRate = r
+				compiled[i].limiters = newLimiterGroup(r, burst)
 			}
 		}
 
@@ -187,6 +209,12 @@ func throttleKey(rule *compiledRule, attrs, resAttrs pcommon.Map) string {
 // compiled; callers gate on that.
 func (r *compiledRule) maskMatches(s string) string {
 	return r.regex.ReplaceAllLiteralString(s, redactedPatternPlaceholder)
+}
+
+// throttleScopeKnown reports whether this collector implements a THROTTLE
+// rule's scope. Empty is per collector, the pre-scope behavior.
+func throttleScopeKnown(scope string) bool {
+	return scope == "" || scope == ThrottleScopeCollector || scope == ThrottleScopeFleet
 }
 
 // sampleScopeKnown reports whether this collector implements a SAMPLE rule's
