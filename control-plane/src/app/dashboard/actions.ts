@@ -7,13 +7,15 @@
 // operator sees the change instantly, and the collector picks it up on its
 // next policy sync tick.
 //
-// NOTE: the control plane has no operator authentication yet (the dashboard
-// is a trusted local surface in this phase). Server Actions are reachable via
-// direct POST, so when operator auth lands, every action here must verify the
-// session before mutating — see the Next.js data-security guide.
+// Every action starts with requireOperator() (issue #10): Server Actions are
+// reachable by direct POST, so the dashboard page's own sign-in check
+// doesn't protect them. Each change is then recorded in the audit trail.
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { ConditionOp, PolicyAction, SampleScope, TargetSignal } from "@/generated/prisma/enums";
+import { AuditAction, recordAudit } from "@/lib/audit";
+import { requireOperator } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
 
@@ -46,6 +48,7 @@ export async function createRule(
   _prev: CreateRuleState,
   formData: FormData,
 ): Promise<CreateRuleState> {
+  const operator = await requireOperator();
   const fleetId = formString(formData, "fleetId");
   const name = formString(formData, "name");
   const actionType = formString(formData, "actionType");
@@ -161,21 +164,28 @@ export async function createRule(
     }
   }
 
-  await prisma.policyRule.create({
-    data: {
-      fleetId,
-      name,
-      actionType,
-      sampleRate,
-      sampleScope,
-      targetDestination,
-      throttleRate,
-      throttleGroupBy,
-      targetSignal,
-      conditionField,
-      conditionOp,
-      conditionValue,
-    },
+  const rule = {
+    name,
+    actionType,
+    sampleRate,
+    sampleScope,
+    targetDestination,
+    throttleRate,
+    throttleGroupBy,
+    targetSignal,
+    conditionField,
+    conditionOp,
+    conditionValue,
+  };
+  const id = randomUUID();
+  await prisma.policyRule.create({ data: { id, fleetId, ...rule } });
+  await recordAudit({
+    operator,
+    action: AuditAction.RULE_CREATED,
+    fleetId,
+    targetId: id,
+    targetName: name,
+    details: rule,
   });
 
   revalidatePath("/dashboard");
@@ -183,18 +193,26 @@ export async function createRule(
 }
 
 export async function toggleRuleActive(formData: FormData): Promise<void> {
+  const operator = await requireOperator();
   const ruleId = formString(formData, "ruleId");
   if (!UUID_RE.test(ruleId)) throw new Error("invalid rule id");
 
   const rule = await prisma.policyRule.findFirst({
     where: { id: ruleId, deletedAt: null },
-    select: { isActive: true },
+    select: { isActive: true, name: true, fleetId: true },
   });
   if (!rule) throw new Error("rule not found");
 
   await prisma.policyRule.update({
     where: { id: ruleId },
     data: { isActive: !rule.isActive },
+  });
+  await recordAudit({
+    operator,
+    action: rule.isActive ? AuditAction.RULE_PAUSED : AuditAction.RULE_RESUMED,
+    fleetId: rule.fleetId,
+    targetId: ruleId,
+    targetName: rule.name,
   });
 
   revalidatePath("/dashboard");
@@ -220,6 +238,7 @@ async function purgeExpiredDeletes(): Promise<void> {
 }
 
 export async function deleteRule(ruleId: string): Promise<RuleMutationResult> {
+  const operator = await requireOperator();
   if (typeof ruleId !== "string" || !UUID_RE.test(ruleId)) {
     return { ok: false, error: "Invalid rule id" };
   }
@@ -228,12 +247,19 @@ export async function deleteRule(ruleId: string): Promise<RuleMutationResult> {
   // is a clean "not found" rather than a throw.
   const rule = await prisma.policyRule.findFirst({
     where: { id: ruleId, deletedAt: null },
-    select: { name: true },
+    select: { name: true, fleetId: true },
   });
   if (!rule) return { ok: false, error: "Rule not found (already deleted?)" };
   await prisma.policyRule.updateMany({
     where: { id: ruleId, deletedAt: null },
     data: { deletedAt: new Date() },
+  });
+  await recordAudit({
+    operator,
+    action: AuditAction.RULE_DELETED,
+    fleetId: rule.fleetId,
+    targetId: ruleId,
+    targetName: rule.name,
   });
   await purgeExpiredDeletes();
 
@@ -242,6 +268,7 @@ export async function deleteRule(ruleId: string): Promise<RuleMutationResult> {
 }
 
 export async function restoreRule(ruleId: string): Promise<RuleMutationResult> {
+  const operator = await requireOperator();
   if (typeof ruleId !== "string" || !UUID_RE.test(ruleId)) {
     return { ok: false, error: "Invalid rule id" };
   }
@@ -251,12 +278,19 @@ export async function restoreRule(ruleId: string): Promise<RuleMutationResult> {
   await purgeExpiredDeletes();
   const rule = await prisma.policyRule.findFirst({
     where: { id: ruleId, deletedAt: { not: null } },
-    select: { name: true },
+    select: { name: true, fleetId: true },
   });
   if (!rule) {
     return { ok: false, error: "Too late to undo: the rule was permanently deleted" };
   }
   await prisma.policyRule.update({ where: { id: ruleId }, data: { deletedAt: null } });
+  await recordAudit({
+    operator,
+    action: AuditAction.RULE_RESTORED,
+    fleetId: rule.fleetId,
+    targetId: ruleId,
+    targetName: rule.name,
+  });
 
   revalidatePath("/dashboard");
   return { ok: true, name: rule.name };

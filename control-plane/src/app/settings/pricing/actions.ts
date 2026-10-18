@@ -4,11 +4,13 @@
 // commitment and cloud egress forms.
 //
 // Same trust model as the dashboard's rule actions (see
-// src/app/dashboard/actions.ts): no operator auth yet, so when it lands this
-// action must verify the session before writing.
+// src/app/dashboard/actions.ts): every action checks the operator's session
+// first and records what it saved in the audit trail.
 
 import { revalidatePath } from "next/cache";
 import { ObservabilityVendor } from "@/generated/prisma/enums";
+import { AuditAction, recordAudit } from "@/lib/audit";
+import { requireOperator } from "@/lib/auth";
 import { saveEgressConfig } from "@/lib/egress";
 import { saveCommitment } from "@/lib/overage";
 import { saveRateCard } from "@/lib/pricing";
@@ -37,6 +39,7 @@ export async function savePricing(
   _prev: SavePricingState,
   formData: FormData,
 ): Promise<SavePricingState> {
+  const operator = await requireOperator();
   const fleetId = formString(formData, "fleetId");
   const vendor = formString(formData, "vendor");
   const customVendorName = formString(formData, "customVendorName");
@@ -70,7 +73,7 @@ export async function savePricing(
     prices[key] = Number(raw);
   }
 
-  await saveRateCard(fleetId, {
+  const rateCard = {
     vendor: vendorValue,
     customVendorName: customVendorName || null,
     tracesPricePerGb: prices.tracesPricePerGb,
@@ -78,7 +81,9 @@ export async function savePricing(
     metricsPricePerGb: prices.metricsPricePerGb,
     tracesIndexPricePerMillion: prices.tracesIndexPricePerMillion,
     logsIndexPricePerMillion: prices.logsIndexPricePerMillion,
-  });
+  };
+  await saveRateCard(fleetId, rateCard);
+  await recordAudit({ operator, action: AuditAction.RATE_CARD_UPDATED, fleetId, details: rateCard });
 
   revalidatePath("/settings/pricing");
   revalidatePath("/dashboard");
@@ -95,6 +100,7 @@ export async function saveCommitmentAction(
   _prev: SaveCommitmentState,
   formData: FormData,
 ): Promise<SaveCommitmentState> {
+  const operator = await requireOperator();
   const fleetId = formString(formData, "fleetId");
   const committedRaw = formString(formData, "committedGbPerMonth").replace(/,/g, "");
   const multiplierRaw = formString(formData, "overageMultiplier").replace(/x$/i, "");
@@ -118,11 +124,13 @@ export async function saveCommitmentAction(
     return fail("billing cycle day must be a whole number from 1 to 28");
   }
 
-  await saveCommitment(fleetId, {
+  const commitment = {
     committedGbPerMonth: Number(committedRaw),
     overageMultiplier,
     billingCycleDay,
-  });
+  };
+  await saveCommitment(fleetId, commitment);
+  await recordAudit({ operator, action: AuditAction.COMMITMENT_UPDATED, fleetId, details: commitment });
 
   revalidatePath("/settings/pricing");
   revalidatePath("/dashboard");
@@ -138,6 +146,7 @@ export async function saveEgressAction(
   _prev: SaveEgressState,
   formData: FormData,
 ): Promise<SaveEgressState> {
+  const operator = await requireOperator();
   const fleetId = formString(formData, "fleetId");
   // An unchecked checkbox is simply absent from the form data.
   const enabled = formData.get("enabled") === "on";
@@ -157,11 +166,9 @@ export async function saveEgressAction(
     return fail("compression ratio must be between 1 (uncompressed) and 100");
   }
 
-  await saveEgressConfig(fleetId, {
-    enabled,
-    pricePerGb: Number(priceRaw),
-    compressionRatio,
-  });
+  const egress = { enabled, pricePerGb: Number(priceRaw), compressionRatio };
+  await saveEgressConfig(fleetId, egress);
+  await recordAudit({ operator, action: AuditAction.EGRESS_UPDATED, fleetId, details: egress });
 
   revalidatePath("/settings/pricing");
   revalidatePath("/dashboard");

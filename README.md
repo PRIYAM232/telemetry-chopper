@@ -167,7 +167,7 @@ This brings up the full stack in dependency order: PostgreSQL → a one-shot mig
 
 ### 2. Open the dashboard
 
-Head to **[http://localhost:3000](http://localhost:3000)** — you'll see the seeded dev fleet, ready for rules.
+Head to **[http://localhost:3000](http://localhost:3000)** and sign in as `admin@localhost` with password `chopper-admin-dev`, then choose your own password. You'll see the seeded dev fleet, ready for rules. To add teammates or review who changed what, see [Sign in, manage operators and review the audit log](docs/deploy/sign-in-and-operators.md).
 
 ### 3. Send some telemetry
 
@@ -286,13 +286,13 @@ We're open-sourcing Telemetry Chopper with a deliberately honest security story:
 
 ### Designed for trusted environments (the reality)
 
-Telemetry Chopper V1 assumes deployment inside a **trusted network perimeter** — your private VPC, internal network, or Kubernetes cluster. The Control Plane does not yet ship built-in user authentication, and collector-to-control-plane traffic is authenticated with per-fleet API keys over plain HTTP. Neither component should be exposed directly to the public internet as-is. The docker-compose and Helm quick starts seed **deterministic dev fleet credentials** for a friction-free first run — rotate them for anything beyond local evaluation.
+Telemetry Chopper V1 assumes deployment inside a **trusted network perimeter** — your private VPC, internal network, or Kubernetes cluster. The Control Plane requires every operator to sign in and records every change in an audit log, but it has no roles or single sign-on yet, and collector-to-control-plane traffic is authenticated with per-fleet API keys over plain HTTP. Neither component should be exposed directly to the public internet as-is. The docker-compose quick start ships **default sign-in credentials** and the docker-compose and Helm quick starts seed **deterministic dev fleet credentials** for a friction-free first run — replace both for anything beyond local evaluation.
 
 ### Production deployment recommendations
 
 V1 is designed to slot behind the perimeter controls your platform team already operates:
 
-- **Control Plane access** — front the Next.js UI and policy API with an Identity-Aware Proxy such as [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/) or [Tailscale](https://tailscale.com/), or restrict it to your internal VPN. Every rule mutation then carries your organization's existing identity and access policy.
+- **Control Plane access** — give each person their own operator account and set your own first-operator credentials before the Control Plane is reachable by others; see [Sign in, manage operators and review the audit log](docs/deploy/sign-in-and-operators.md). For single sign-on today, also front the UI with an Identity-Aware Proxy such as [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/) or [Tailscale](https://tailscale.com/), or restrict it to your internal VPN.
 - **Gateway resilience** — run `memory_limiter` first in every pipeline and give exporters persistent queues (`file_storage`), so traffic spikes are shed instead of OOM-killing a gateway and queued telemetry survives a restart. The Helm chart does both by default; see [Run gateways in production](docs/deploy/run-gateways-in-production.md).
 - **Network encryption** — enforce mTLS between `otelcol-chopper` and the Control Plane with a Kubernetes service mesh ([Istio](https://istio.io/), [Linkerd](https://linkerd.io/)) or a TLS-terminating ingress controller. The sync and stats endpoints are plain HTTP calls, so mesh sidecars wrap them transparently — no Telemetry Chopper configuration changes required.
 
@@ -309,7 +309,6 @@ Slated for upcoming V1.x releases to make Telemetry Chopper fully compliant out 
 
 - **RBAC & SSO** — Role-Based Access Control and OIDC/SAML Single Sign-On for the Control Plane.
 - **Native mTLS** — cryptographic mutual TLS enforcement between the data plane and control plane, without requiring a mesh.
-- **Audit logging** — an immutable trail for every telemetry rule mutation: who changed or dropped which rule, and when.
 
 ## Contributing
 

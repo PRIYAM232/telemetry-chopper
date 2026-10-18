@@ -16,6 +16,9 @@ against traces, logs, or metrics). The Go side of this contract lives in
 | `prisma/seed.ts` | Deterministic dev fleet + 3 sample rules (idempotent upserts) |
 | `src/lib/prisma.ts` | Prisma Client singleton (hot-reload safe, pg driver adapter) |
 | `src/app/api/v1/policies/[fleetId]/route.ts` | Bearer-authenticated policy endpoint |
+| `src/lib/auth.ts`, `src/proxy.ts` | Operator sessions; every page and Server Action calls `requireOperator()` |
+| `src/lib/audit.ts` | Audit trail writer (`AuditEvent`), rendered at `/audit` |
+| `scripts/operator.ts` | `npm run operator -- create\|reset-password <email>` for account recovery |
 
 ## Local development
 
@@ -31,6 +34,12 @@ npx prisma db seed
 # 3. API server on :3000
 npm run dev
 ```
+
+Sign in at http://localhost:3000. The first operator is created from
+`CHOPPER_ADMIN_EMAIL` and `CHOPPER_ADMIN_PASSWORD` (12+ characters) the first
+time someone signs in with them, so put both in `control-plane/.env` next to
+`DATABASE_URL`. See
+[Sign in, manage operators and review the audit log](../docs/deploy/sign-in-and-operators.md).
 
 The seed provisions fleet `f1ee7000-0000-4000-8000-000000000001` with API key
 `chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712` (**local dev only — rotate for
@@ -63,7 +72,7 @@ telemetrygen traces --otlp-insecure --otlp-endpoint localhost:4318 --otlp-http \
   --traces 2 --telemetry-attributes 'http.status_code="200"'   # passes
 ```
 
-Rule edits (SQL, Prisma Studio, or a future dashboard) propagate to running
+Rule edits (dashboard, SQL or Prisma Studio) propagate to running
 collectors within one sync interval — no restart.
 
 ## Roadmap

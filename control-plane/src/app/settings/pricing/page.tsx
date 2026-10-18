@@ -4,7 +4,8 @@
 // dropped by the per-GB prices saved here (src/lib/pricing.ts).
 
 import type { Metadata } from "next";
-import Link from "next/link";
+import { TopBar } from "@/app/top-bar";
+import { requireOperator } from "@/lib/auth";
 import { getEgressConfig } from "@/lib/egress";
 import { getCommitment } from "@/lib/overage";
 import { prisma } from "@/lib/prisma";
@@ -21,6 +22,7 @@ export const metadata: Metadata = {
 };
 
 export default async function PricingSettingsPage() {
+  const operator = await requireOperator();
   // Same fleet the dashboard shows: the control plane manages one fleet per
   // deployment today.
   const fleet = await prisma.collectorFleet.findFirst({
@@ -29,38 +31,35 @@ export default async function PricingSettingsPage() {
   });
 
   return (
-    <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
-      <Link
-        href="/dashboard"
-        className="text-sm text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
-      >
-        ← Dashboard
-      </Link>
-      <h1 className="mt-3 text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-        Pricing configuration
-      </h1>
+    <>
+      <TopBar operator={operator} current="/settings/pricing" />
+      <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
+        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+          Pricing configuration
+        </h1>
 
-      {!fleet ? (
-        <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
-          No collector fleet found. Seed the development fleet first with{" "}
-          <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-900">
-            npx prisma db seed
-          </code>
-          .
-        </p>
-      ) : (
-        <>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Savings for fleet{" "}
-            <span className="font-medium text-zinc-900 dark:text-zinc-200">{fleet.name}</span>{" "}
-            are priced as the GB each signal&apos;s rules dropped × your per-GB rate.
+        {!fleet ? (
+          <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
+            No collector fleet found. Seed the development fleet first with{" "}
+            <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-900">
+              npx prisma db seed
+            </code>
+            .
           </p>
-          <PricingSection fleetId={fleet.id} />
-          <CommitmentSection fleetId={fleet.id} />
-          <EgressSection fleetId={fleet.id} />
-        </>
-      )}
-    </main>
+        ) : (
+          <>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              Savings for fleet{" "}
+              <span className="font-medium text-zinc-900 dark:text-zinc-200">{fleet.name}</span>{" "}
+              are priced as the GB each signal&apos;s rules dropped × your per-GB rate.
+            </p>
+            <PricingSection fleetId={fleet.id} />
+            <CommitmentSection fleetId={fleet.id} />
+            <EgressSection fleetId={fleet.id} />
+          </>
+        )}
+      </main>
+    </>
   );
 }
 

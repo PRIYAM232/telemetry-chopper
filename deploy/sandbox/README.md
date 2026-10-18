@@ -31,7 +31,7 @@ flowchart LR
 | `loadgen` | — | The workload ([`loadgen/`](loadgen/)) |
 | `postgres` | — | Control-plane storage |
 
-Host ports bind `127.0.0.1` only (the control plane has no operator auth). Jaeger doesn't store logs, so logs are verified on the mock backend's stdout and in Prometheus.
+Host ports bind `127.0.0.1` only, because the sandbox ships known dev sign-in credentials. Jaeger doesn't store logs, so logs are verified on the mock backend's stdout and in Prometheus.
 
 ### The workload
 
@@ -144,7 +144,7 @@ curl -s localhost:8888/metrics | grep '^# TYPE otelcol_chopper_filter'
 
 ## 3. Open the Telemetry Chopper control plane
 
-Open **http://localhost:3000/dashboard**. You should see fleet `local-dev-fleet`, a green **Collector online** badge (stats heartbeat every 10s), and the 3 seeded rules.
+Open **http://localhost:3000/dashboard** and sign in as `admin@localhost` with password `chopper-admin-dev`. You're asked to choose a new password the first time. You should then see fleet `local-dev-fleet`, a green **Collector online** badge (stats heartbeat every 10s), and the 3 seeded rules.
 
 ## 4. Add the REDACT and THROTTLE rules
 

@@ -13,6 +13,9 @@ Dashboard (policy/stats APIs on the same port):
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-control-plane {{ .Values.controlPlane.service.port }}:{{ .Values.controlPlane.service.port }}
   open http://localhost:{{ .Values.controlPlane.service.port }}/dashboard
 
+Sign in as {{ .Values.controlPlane.admin.email }} (you choose a new password on first sign-in):
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Values.controlPlane.admin.existingSecret | default (printf "%s-admin" .Release.Name) }} -o jsonpath='{.data.CHOPPER_ADMIN_PASSWORD}' | base64 -d; echo
+
 Send OTLP telemetry (in-cluster endpoints):
   grpc: {{ .Release.Name }}-collector.{{ .Release.Namespace }}.svc:4317
   http: {{ .Release.Name }}-collector.{{ .Release.Namespace }}.svc:4318

@@ -80,6 +80,8 @@ kubectl -n chopper logs job/chopper-migrate
 # dashboard
 kubectl -n chopper port-forward svc/chopper-control-plane 3000:3000
 open http://localhost:3000/dashboard
+# first sign-in: admin@localhost and this generated password (you choose your own after)
+kubectl -n chopper get secret chopper-admin -o jsonpath='{.data.CHOPPER_ADMIN_PASSWORD}' | base64 -d; echo
 
 # OTLP smoke test through the collector
 kubectl -n chopper port-forward svc/chopper-collector 4318:4318
@@ -264,6 +266,11 @@ missing its bucket, storage URL (unless you use a connection string) or volume.
 - **Managed database**: `--set postgres.enabled=false --set database.externalUrl=postgresql://…` —
   drops the StatefulSet entirely; secret, migration job, and control plane
   all follow the external URL.
+- **First operator**: set `controlPlane.admin.email` and
+  `controlPlane.admin.password`, or `controlPlane.admin.existingSecret` (keys
+  `CHOPPER_ADMIN_EMAIL`, `CHOPPER_ADMIN_PASSWORD`). An empty password is
+  generated once and kept across upgrades. See
+  [Sign in, manage operators and review the audit log](../../docs/deploy/sign-in-and-operators.md).
 - **Fleet credentials**: defaults are the deterministic dev seed values —
   rotate `fleet.id` / `fleet.key` (and set `migrator.seed=false`) for any
   real deployment.
