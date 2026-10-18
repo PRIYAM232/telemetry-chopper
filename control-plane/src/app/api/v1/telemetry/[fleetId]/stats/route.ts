@@ -47,6 +47,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PRUNE_AFTER_MS } from "@/lib/collectors";
 import { authenticateFleet } from "@/lib/fleet-auth";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -253,16 +254,16 @@ export async function POST(
       metricsForwardedBytes,
     },
   });
-  await (ruleRows.length > 0
-    ? prisma.$transaction([fleetRow, prisma.ruleMetric.createMany({ data: ruleRows })])
-    : fleetRow);
-
+  const writes: Prisma.PrismaPromise<unknown>[] = [fleetRow];
+  if (ruleRows.length > 0) {
+    writes.push(prisma.ruleMetric.createMany({ data: ruleRows }));
+  }
   // Mark the sender active for fleet-wide THROTTLE rules, and forget
   // collectors long gone so the table stays the size of the fleet.
   const collector = parseCollector(payload);
   if (collector) {
     const now = new Date();
-    await prisma.$transaction([
+    writes.push(
       prisma.collectorInstance.upsert({
         where: { fleetId_instanceId: { fleetId: auth.fleetId, instanceId: collector.instanceId } },
         create: { fleetId: auth.fleetId, ...collector, lastSeenAt: now },
@@ -271,8 +272,14 @@ export async function POST(
       prisma.collectorInstance.deleteMany({
         where: { fleetId: auth.fleetId, lastSeenAt: { lt: new Date(now.getTime() - PRUNE_AFTER_MS) } },
       }),
-    ]);
+    );
   }
+  // One transaction per heartbeat: each holds a pooled connection until it
+  // commits, and the pilot rehearsal saw a CPU-starved control plane time
+  // out starting a second one ("Unable to start a transaction in the given
+  // time"). Atomic too: a heartbeat's counts and its sender's liveness land
+  // together or not at all.
+  await (writes.length > 1 ? prisma.$transaction(writes) : fleetRow);
 
   return new NextResponse(null, { status: 204 });
 }
