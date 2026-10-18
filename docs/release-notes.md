@@ -1,5 +1,19 @@
 # Release notes
 
+## October 18, 2026
+
+### New
+
+- **Fleet-wide THROTTLE limits.** THROTTLE rules have a **Limit applies to** setting. **Whole fleet**, the default for new rules, splits the rate between the collectors currently reporting, so several gateway replicas together pass at most the rate. **Each collector** keeps the previous behavior. See [Set THROTTLE limits for several gateways](rules/README.md#set-throttle-limits-for-several-gateways).
+- **THROTTLE burst.** Set how many seconds of the rate a bucket holds, so sources that send in large batches aren't clamped below the rate.
+- The dashboard header shows how many collectors are online.
+
+### Changed
+
+- Existing THROTTLE rules apply to each collector, as before. Their badge now says **per collector** instead of **global**.
+- Collectors send a `collector_id` and `interval_seconds` in their heartbeat, and the policy response includes `active_collectors`.
+- Upgrade collectors before relying on fleet-wide THROTTLE rules. Older collectors enforce the full rate each.
+
 ## October 17, 2026
 
 ### New

@@ -18,6 +18,7 @@
 //     "traces_forwarded_bytes": int64, "logs_forwarded_bytes": int64,
 //     "metrics_forwarded_bytes": int64,
 //     "traces_unindexed": int64, "logs_unindexed": int64,
+//     "collector_id": string, "interval_seconds": number,
 //     "rules": [ { "rule_id": uuid, "matched": int64, "dropped": int64,
 //                  "dropped_bytes": int64, "unindexed": int64,
 //                  "evaluated": int64 }, ... ]
@@ -44,6 +45,7 @@
 // alive — so it is stored, not skipped.
 
 import { NextRequest, NextResponse } from "next/server";
+import { PRUNE_AFTER_MS } from "@/lib/collectors";
 import { authenticateFleet } from "@/lib/fleet-auth";
 import { prisma } from "@/lib/prisma";
 
@@ -93,6 +95,29 @@ type RuleEntry = {
   unindexed: number;
   evaluated: number;
 };
+
+// Collector identity (issue #46): optional, so collectors that predate it
+// still report; malformed values are ignored rather than rejected, since a
+// heartbeat that can't identify its sender is still a valid heartbeat.
+const MAX_COLLECTOR_ID_LENGTH = 128;
+const DEFAULT_INTERVAL_SECONDS = 10;
+const MAX_INTERVAL_SECONDS = 3600;
+
+function parseCollector(payload: Record<string, unknown>): {
+  instanceId: string;
+  intervalSeconds: number;
+} | null {
+  const id = payload.collector_id;
+  if (typeof id !== "string" || id.length === 0 || id.length > MAX_COLLECTOR_ID_LENGTH) {
+    return null;
+  }
+  const interval = payload.interval_seconds;
+  const intervalSeconds =
+    typeof interval === "number" && Number.isFinite(interval) && interval >= 1 && interval <= MAX_INTERVAL_SECONDS
+      ? interval
+      : DEFAULT_INTERVAL_SECONDS;
+  return { instanceId: id, intervalSeconds };
+}
 
 // Parses the optional "rules" array. Returns null when it is present but
 // malformed (a client bug, so a 400 like any other bad count).
@@ -231,6 +256,23 @@ export async function POST(
   await (ruleRows.length > 0
     ? prisma.$transaction([fleetRow, prisma.ruleMetric.createMany({ data: ruleRows })])
     : fleetRow);
+
+  // Mark the sender active for fleet-wide THROTTLE rules, and forget
+  // collectors long gone so the table stays the size of the fleet.
+  const collector = parseCollector(payload);
+  if (collector) {
+    const now = new Date();
+    await prisma.$transaction([
+      prisma.collectorInstance.upsert({
+        where: { fleetId_instanceId: { fleetId: auth.fleetId, instanceId: collector.instanceId } },
+        create: { fleetId: auth.fleetId, ...collector, lastSeenAt: now },
+        update: { intervalSeconds: collector.intervalSeconds, lastSeenAt: now },
+      }),
+      prisma.collectorInstance.deleteMany({
+        where: { fleetId: auth.fleetId, lastSeenAt: { lt: new Date(now.getTime() - PRUNE_AFTER_MS) } },
+      }),
+    ]);
+  }
 
   return new NextResponse(null, { status: 204 });
 }

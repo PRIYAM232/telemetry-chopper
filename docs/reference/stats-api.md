@@ -30,6 +30,8 @@ Every field is optional. A missing field counts as `0`. Counts must be non-negat
 | `traces_forwarded_bytes`, `logs_forwarded_bytes`, `metrics_forwarded_bytes` | OTLP protobuf bytes passed downstream |
 | `traces_unindexed`, `logs_unindexed` | Records forwarded with `chopper.index = false` |
 | `rules` | Per-rule counts for this interval (see below). Include only rules with activity. |
+| `collector_id` | A stable ID for the sending collector process, up to 128 characters. Collectors send their `service.instance.id`. The control plane counts collectors with a recent heartbeat to split fleet-wide THROTTLE limits. Optional. |
+| `interval_seconds` | The collector's stats interval, from 1 to 3600. A collector counts as active until about three intervals pass without a heartbeat. Optional; defaults to `10`. |
 
 Each entry in `rules`:
 
