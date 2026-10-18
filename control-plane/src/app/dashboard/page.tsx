@@ -675,6 +675,9 @@ function RuleCard({
             <>
               {rule.conditionField} {rule.conditionOp}
               {rule.conditionOp !== ConditionOp.EXISTS ? ` "${rule.conditionValue}"` : ""}
+              {rule.conditionIgnoreCase && (
+                <span className="text-zinc-500 dark:text-zinc-400"> · ignore case</span>
+              )}
             </>
           )}
         </code>

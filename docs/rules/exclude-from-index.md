@@ -12,7 +12,7 @@ The **EXCLUDE_INDEX** action lets you keep sending data your vendor needs for li
 ## Exclude events from indexing
 
 1. On the dashboard, in the **New rule** form, choose the action **EXCLUDE_INDEX** and the signal **LOGS** or **TRACES**.
-2. Enter a condition for the events to exclude, for example `log.severity` `EQUALS` `INFO`.
+2. Enter a condition for the events to exclude, for example `log.severity` `EQUALS` `INFO` with **Ignore case** selected.
 3. Click **Create rule**. The rule card shows a `chopper.index=false` badge.
 4. In your vendor, add an index exclusion filter on the attribute. For example, in a Datadog log index, add an exclusion filter with the query `@chopper.index:false`.
 

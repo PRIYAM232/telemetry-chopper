@@ -165,7 +165,7 @@ Use the **New rule** form once per row. The pattern is also printed at the top o
 
 How these behave:
 - **REGEX_MATCH masks only the matches**, writing `[REDACTED_PATTERN]` over each one and keeping the rest of the line. **EXISTS replaces the whole value** with `[REDACTED]`. That's why rules 1 and 2 behave differently.
-- `log.body` and `log.severity` are virtual fields on log records. Any other name is an attribute (record first, then resource).
+- `log.body`, `log.severity` and `log.severity_number` are virtual fields on log records. Any other name is an attribute (record first, then resource).
 - **Group by `tenant_id`** gives every tenant its own 50/s token bucket, so globex is clamped while acme and initech (5/s each) never touch their limit. Leave it blank and all tenants share one 50/s bucket.
 - REDACT applies to LOGS and TRACES; it has no METRICS semantics and is skipped there.
 

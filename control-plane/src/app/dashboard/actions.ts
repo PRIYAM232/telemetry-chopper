@@ -20,6 +20,7 @@ import {
   TargetSignal,
   ThrottleScope,
 } from "@/generated/prisma/enums";
+import { IGNORE_CASE_OPS, NUMERIC_OPS } from "@/lib/conditions";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
 
@@ -89,6 +90,18 @@ export async function createRule(
   if (!isEnumValue(ConditionOp, conditionOp)) return fail("invalid condition operator");
   if (conditionOp !== ConditionOp.EXISTS && !conditionValue) {
     return fail(`condition value is required for ${conditionOp}`);
+  }
+  // Stored only where it means something (issue #47), so a rule's flag never
+  // claims an effect its operator can't have.
+  const conditionIgnoreCase =
+    formData.get("conditionIgnoreCase") === "on" && IGNORE_CASE_OPS.has(conditionOp);
+
+  // GREATER_THAN / LESS_THAN compare numbers; the data plane never matches a
+  // rule whose value doesn't parse as one, so reject it here instead of
+  // shipping a rule that silently does nothing. Plain decimal or exponent
+  // notation: a subset of what Go's strconv.ParseFloat accepts.
+  if (NUMERIC_OPS.has(conditionOp) && !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(conditionValue)) {
+    return fail(`condition value must be a number for ${conditionOp}, e.g. 13`);
   }
 
   // The data plane compiles REGEX_MATCH patterns with Go's RE2, and a pattern
@@ -198,6 +211,7 @@ export async function createRule(
       conditionField,
       conditionOp,
       conditionValue,
+      conditionIgnoreCase,
     },
   });
 
