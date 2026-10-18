@@ -78,6 +78,7 @@ The file has one top-level key, `rules`, holding a list. Rules run in the order 
 | `destination` | For `route` | The routing connector table entry to send matches to, such as `cold-storage`. Letters, digits and `. _ / -`. |
 | `throttle_rate` | For `throttle` | Records per second allowed through, from 1 to 1,000,000. |
 | `throttle_group_by` | No, `throttle` only | An attribute key, such as `tenant_id`, that gives each of its values its own limit. |
+| `throttle_burst_seconds` | No, `throttle` only | How many seconds of the rate a bucket can hold, from 1 to 300, so sources that send in large batches aren't clamped below the rate. Default 1. |
 
 A setting that belongs to another action, such as `sample_rate` on a `drop` rule, is an error rather than being ignored. So is a misspelled key.
 
@@ -117,6 +118,10 @@ Not on the same `chopper_filter` processor. To manage some collectors from the d
 ### Does a rules file work with a Kubernetes ConfigMap?
 
 Yes. Mount the ConfigMap as a volume and point `rules_file` at the mounted file. Kubernetes updates mounted ConfigMaps in place, usually within a minute of `kubectl apply`, and the collector picks the change up on its next check. Don't mount it with `subPath`: Kubernetes never updates files mounted that way.
+
+### Is a THROTTLE rate per collector or for the whole fleet?
+
+Per collector. A collector with a rules file has no control plane to count its peers, so it enforces the full `throttle_rate` on its own. If you run several collectors with the same rules file behind a load balancer, divide the rate by the number of collectors yourself.
 
 ### How do I stop the collector from re-reading the file?
 

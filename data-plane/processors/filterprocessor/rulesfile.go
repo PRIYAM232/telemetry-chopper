@@ -66,6 +66,9 @@ type fileRule struct {
 	Destination     string   `yaml:"destination"`
 	ThrottleRate    *int     `yaml:"throttle_rate"`
 	ThrottleGroupBy string   `yaml:"throttle_group_by"`
+	// ThrottleBurstSeconds is how many seconds of the rate a bucket holds.
+	// There is no throttle scope: a standalone collector is its own fleet.
+	ThrottleBurstSeconds *int `yaml:"throttle_burst_seconds"`
 }
 
 type fileCondition struct {
@@ -204,6 +207,7 @@ func (fr *fileRule) toPolicyRule() (PolicyRule, error) {
 		only(fr.Destination != "", "destination", ActionRoute),
 		only(fr.ThrottleRate != nil, "throttle_rate", ActionThrottle),
 		only(fr.ThrottleGroupBy != "", "throttle_group_by", ActionThrottle),
+		only(fr.ThrottleBurstSeconds != nil, "throttle_burst_seconds", ActionThrottle),
 	} {
 		if err != nil {
 			return PolicyRule{}, err
@@ -245,6 +249,13 @@ func (fr *fileRule) toPolicyRule() (PolicyRule, error) {
 				return PolicyRule{}, errors.New("throttle_group_by must be an attribute key: 1-128 letters, digits, . _ / -")
 			}
 			rule.ThrottleGroupBy = fr.ThrottleGroupBy
+		}
+		if b := fr.ThrottleBurstSeconds; b != nil {
+			// The dashboard's range.
+			if *b < 1 || *b > 300 {
+				return PolicyRule{}, fmt.Errorf("throttle_burst_seconds must be a whole number from 1 to 300, got %d", *b)
+			}
+			rule.ThrottleBurstSeconds = b
 		}
 	}
 

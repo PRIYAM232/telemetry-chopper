@@ -48,6 +48,7 @@ func (s *sharedEngines) getOrCreate(set processor.Settings, cfg *Config) *ruleEn
 		return e
 	}
 	e := newRuleEngine(set.Logger, cfg)
+	e.collectorID = collectorInstanceID(set.TelemetrySettings.Resource)
 	// Self-metrics registration is best-effort: losing the Prometheus counters
 	// degrades observability, not the pipeline, so a registration failure must
 	// never block component creation (same stance the engine takes toward a

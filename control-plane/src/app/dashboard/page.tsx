@@ -7,7 +7,14 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PolicyAction, TargetSignal, ConditionOp, SampleScope } from "@/generated/prisma/enums";
+import {
+  PolicyAction,
+  TargetSignal,
+  ConditionOp,
+  SampleScope,
+  ThrottleScope,
+} from "@/generated/prisma/enums";
+import { countActiveCollectors } from "@/lib/collectors";
 import type { PolicyRuleModel } from "@/generated/prisma/models";
 import { formatBytes } from "@/lib/format";
 import { computeEgressSavings, getEgressConfig } from "@/lib/egress";
@@ -97,7 +104,16 @@ export default async function DashboardPage({
   // the reduction reflects the current ruleset rather than all history.
   const inWindow = since === null ? {} : { createdAt: { gte: since } };
 
-  const [totals, unsized, lastMetric, rateCard, egressConfig, ruleStats, perRuleReporting] = await Promise.all([
+  const [
+    totals,
+    unsized,
+    lastMetric,
+    rateCard,
+    egressConfig,
+    ruleStats,
+    perRuleReporting,
+    activeCollectors,
+  ] = await Promise.all([
     prisma.fleetMetric.aggregate({
       where: { fleetId: fleet.id, ...inWindow },
       _sum: {
@@ -135,6 +151,9 @@ export default async function DashboardPage({
     getEgressConfig(fleet.id),
     getRuleStats(fleet.id, since),
     fleetReportsRuleStats(fleet.id),
+    // Collectors that identify themselves in heartbeats (issue #46); 0 when
+    // every collector predates that, which the header falls back from.
+    countActiveCollectors(fleet.id),
   ]);
 
   const tracesReceived = totals._sum.tracesReceived ?? 0;
@@ -224,7 +243,9 @@ export default async function DashboardPage({
             }`}
           />
           {collectorOnline
-            ? "Collector online"
+            ? activeCollectors > 1
+              ? `${activeCollectors} collectors online`
+              : "Collector online"
             : heartbeatAgeMs !== null
               ? `Last heartbeat ${Math.round(heartbeatAgeMs / 1000)}s ago`
               : "No heartbeat yet"}
@@ -346,6 +367,7 @@ export default async function DashboardPage({
                     // 1 — clamp anyway so hand-edited rows can't show 167%.
                     dropShare={dropped > 0 ? Math.min(stats.dropped / dropped, 1) : 0}
                     windowLabel={windowLabel}
+                    activeCollectors={activeCollectors}
                     silent={
                       perRuleReporting &&
                       stats.matched === 0 &&
@@ -515,12 +537,25 @@ function RuleStatsLine({
   );
 }
 
+// The THROTTLE badge's tooltip: what the rate means for this fleet right now
+// (issue #46). A rule without a scope predates scopes and is per collector.
+function throttleTitle(rule: PolicyRuleModel, rate: number, activeCollectors: number): string {
+  const n = Math.max(1, activeCollectors);
+  const grouped = rule.throttleGroupBy !== null ? ` for each ${rule.throttleGroupBy} value` : "";
+  const scope =
+    rule.throttleScope === ThrottleScope.FLEET
+      ? `All collectors together admit at most ${rate}/s${grouped}: the rate is split between the ${n} collector${n === 1 ? "" : "s"} reporting now, about ${Math.round((rate / n) * 10) / 10}/s each, assuming they share the traffic evenly.`
+      : `Each collector admits up to ${rate}/s${grouped}, so ${n} collector${n === 1 ? "" : "s"} can pass up to ${rate * n}/s together. Create a fleet-wide rule to cap the whole fleet.`;
+  return `Token-bucket rate limit: matching telemetry above the rate is dropped, traffic under it passes untouched. ${scope}`;
+}
+
 function RuleCard({
   rule,
   stats,
   savingsUSD,
   dropShare,
   windowLabel,
+  activeCollectors,
   silent,
 }: {
   rule: PolicyRuleModel;
@@ -529,6 +564,10 @@ function RuleCard({
   savingsUSD: number;
   dropShare: number;
   windowLabel: string;
+  // Collectors currently heartbeating (issue #46): what a fleet-wide
+  // THROTTLE rule's rate is split between, and what a per-collector one's
+  // fleet-wide ceiling multiplies by.
+  activeCollectors: number;
   // Active, enforced, past warm-up, its signal had traffic, yet no matches.
   silent: boolean;
 }) {
@@ -593,10 +632,14 @@ function RuleCard({
           {rule.actionType === PolicyAction.THROTTLE && rule.throttleRate !== null && (
             <span
               className="shrink-0 rounded-md border border-orange-200 bg-orange-50 px-2 py-0.5 font-mono text-xs text-orange-700 dark:border-orange-900 dark:bg-orange-950 dark:text-orange-400"
-              title="Token-bucket rate limit enforced per collector: matching telemetry above the rate is dropped, traffic under it passes untouched. Grouped buckets give each attribute value its own budget."
+              title={throttleTitle(rule, rule.throttleRate, activeCollectors)}
             >
-              Limit: {rule.throttleRate}/s{" "}
-              {rule.throttleGroupBy !== null ? `per ${rule.throttleGroupBy}` : "global"}
+              Limit: {rule.throttleRate}/s
+              {rule.throttleGroupBy !== null ? ` per ${rule.throttleGroupBy}` : ""}
+              {rule.throttleScope === ThrottleScope.FLEET ? " · fleet-wide" : " · per collector"}
+              {rule.throttleBurstSeconds !== null && rule.throttleBurstSeconds > 1
+                ? ` · ${rule.throttleBurstSeconds}s burst`
+                : ""}
             </span>
           )}
           <h3 className="max-w-full min-w-0 truncate font-medium text-zinc-900 dark:text-zinc-100">

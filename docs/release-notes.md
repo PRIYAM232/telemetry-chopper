@@ -4,20 +4,26 @@
 
 ### New
 
+- **Standalone mode with a rules file.** The collector can read its rules from a YAML file instead of the control plane, so a single `otelcol-chopper` filters telemetry on its own. Edits apply within seconds without a restart, `otelcol-chopper validate` checks the file, and a broken edit keeps the previous rules. See [Run without the control plane](rules/rules-file.md).
+- **Installable collector packages.** Each release now publishes `otelcol-chopper` as `.deb` and `.rpm` packages that install a hardened systemd service with config and rules in `/etc/telemetry-chopper/`, as archives for Linux, macOS and Windows, and as a Homebrew cask, with Sigstore-signed checksums and SBOMs. See [Install the collector](deploy/install-the-collector.md).
 - **Ignore case.** `EQUALS`, `CONTAINS` and `REGEX_MATCH` conditions have an **Ignore case** option, so one rule matches `INFO`, `info` and `Info`. See [Ignore case](rules/README.md#ignore-case).
 - **Severity number.** Log rules can match `log.severity_number`, which every SDK sets the same way, and the new `LESS_THAN` operator, for example `log.severity_number` `LESS_THAN` `13` for INFO and below. See [Conditions](rules/README.md#conditions).
+- **Fleet-wide THROTTLE limits.** THROTTLE rules have a **Limit applies to** setting. **Whole fleet**, the default for new rules, splits the rate between the collectors currently reporting, so several gateway replicas together pass at most the rate. **Each collector** keeps the previous behavior. See [Set THROTTLE limits for several gateways](rules/README.md#set-throttle-limits-for-several-gateways).
+- **THROTTLE burst.** Set how many seconds of the rate a bucket holds, so sources that send in large batches aren't clamped below the rate.
+- The dashboard header shows how many collectors are online.
 
 ### Changed
 
 - The dashboard rejects `GREATER_THAN` and `LESS_THAN` values that aren't numbers. Collectors previously never matched such rules.
 - Upgrade collectors before creating ignore-case, `LESS_THAN` or `log.severity_number` rules. Older collectors match them case-sensitively or not at all.
+- Existing THROTTLE rules apply to each collector, as before. Their badge now says **per collector** instead of **global**.
+- Collectors send a `collector_id` and `interval_seconds` in their heartbeat, and the policy response includes `active_collectors`.
+- Upgrade collectors before relying on fleet-wide THROTTLE rules. Older collectors enforce the full rate each.
 
 ## October 17, 2026
 
 ### New
 
-- **Installable collector packages.** Each release now publishes `otelcol-chopper` as `.deb` and `.rpm` packages that install a hardened systemd service with config and rules in `/etc/telemetry-chopper/`, as archives for Linux, macOS and Windows, and as a Homebrew cask, with Sigstore-signed checksums and SBOMs. See [Install the collector](deploy/install-the-collector.md).
-- **Standalone mode with a rules file.** The collector can read its rules from a YAML file instead of the control plane, so a single `otelcol-chopper` filters telemetry on its own. Edits apply within seconds without a restart, `otelcol-chopper validate` checks the file, and a broken edit keeps the previous rules. See [Run without the control plane](rules/rules-file.md).
 - **Whole-trace sampling.** SAMPLE rules have a new **Applies to** setting. **Whole traces**, the default for new rules, keeps or drops every span of a trace together, so sampling never leaves spans whose parent is missing. **Matching spans only** keeps the previous behavior. See [Sample whole traces](rules/README.md#sample-whole-traces).
 - **Broken-trace warning.** A SAMPLE rule that applies to matching spans only shows **misses N% of spans · may break traces** when its condition misses spans. See [Find SAMPLE rules that break traces](rules/monitor-rule-activity.md#find-sample-rules-that-break-traces).
 - **Production gateway components.** The `otelcol-chopper` distribution now includes the `memory_limiter` processor and the `file_storage` extension. Every sample configuration runs `memory_limiter` first, and the pilot gateways and the Helm chart's archive exporters keep their queues on disk, so queued telemetry survives a crash or restart. See [Run gateways in production](deploy/run-gateways-in-production.md).

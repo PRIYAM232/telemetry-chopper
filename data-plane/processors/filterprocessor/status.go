@@ -27,6 +27,7 @@ const (
 	reasonRegexInvalid       = "regex_does_not_compile"
 	reasonMissingSampleRate  = "missing_sample_rate"
 	reasonSampleScope        = "sample_scope_not_supported"
+	reasonThrottleScope      = "throttle_scope_not_supported"
 	reasonMissingDestination = "missing_destination"
 	reasonMissingRate        = "missing_throttle_rate"
 	reasonActionNotSupported = "action_not_supported_for_signal"
@@ -81,6 +82,11 @@ func ruleStatus(rule *compiledRule) (state, reason string) {
 	case ActionRoute:
 		return ruleStateInvalid, reasonMissingDestination
 	case ActionThrottle:
+		if rule.ThrottleRate != nil && *rule.ThrottleRate > 0 {
+			// The rate is there, so the scope is one a newer control plane
+			// added.
+			return ruleStateUnsupported, reasonThrottleScope
+		}
 		return ruleStateInvalid, reasonMissingRate
 	}
 	// Unreachable while the switch above lists every supported action whose
