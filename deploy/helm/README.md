@@ -255,6 +255,12 @@ missing its bucket, storage URL (unless you use a connection string) or volume.
 ## Real environments
 
 - **Cold storage**: see [Archiving to cold storage](#archiving-to-cold-storage).
+- **Memory and queues**: `memory_limiter` runs first in every pipeline, with
+  limits set by `collector.memoryLimiter` as percentages of
+  `collector.resources.limits.memory`. The archive exporters keep their
+  queues on disk (`collector.persistentQueue`, an `emptyDir` by default,
+  which survives container restarts but not pod deletion). See
+  [Run gateways in production](../../docs/deploy/run-gateways-in-production.md).
 - **Managed database**: `--set postgres.enabled=false --set database.externalUrl=postgresql://…` —
   drops the StatefulSet entirely; secret, migration job, and control plane
   all follow the external URL.

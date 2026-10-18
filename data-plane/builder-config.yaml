@@ -15,7 +15,19 @@ dist:
 receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.156.0
 
+extensions:
+  # Persistent exporter queues (issue #48): an exporter's sending_queue with
+  # `storage: file_storage` writes queued batches to disk, so data waiting
+  # for a slow or unreachable backend survives a collector crash or restart.
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.156.0
+
 processors:
+  # Load shedding (issue #48): refuses data once heap use passes its soft
+  # limit, so a traffic spike makes senders retry instead of OOM-killing the
+  # gateway. Runs first in every ingest pipeline. No batch processor: the
+  # exporters batch in their own sending_queue (`sending_queue.batch`), the
+  # upstream replacement, which also batches what a persistent queue holds.
+  - gomod: go.opentelemetry.io/collector/processor/memorylimiterprocessor v0.156.0
   # Our custom in-process filter engine. The version here is a placeholder —
   # the `replaces` directive below redirects resolution to the local path.
   - gomod: github.com/PRIYAM232/telemetry-chopper/data-plane/processors/filterprocessor v0.1.0

@@ -61,8 +61,32 @@ collector:
     requests:
       cpu: 100m
       memory: 128Mi
+    # Keep a memory limit: memoryLimiter's percentages are of this limit
+    # (without one, of the node's memory).
     limits:
       memory: 512Mi
+
+  # memory_limiter, first in every ingest pipeline (issue #48). Above the
+  # soft limit (limitPercentage - spikeLimitPercentage of the container's
+  # memory limit) the collector refuses data with a retryable error, so
+  # senders back off instead of the pod being OOM-killed; at limitPercentage
+  # it also forces a garbage collection.
+  memoryLimiter:
+    checkInterval: 1s
+    limitPercentage: 80
+    spikeLimitPercentage: 25
+
+  # Persistent exporter queues (issue #48). The archive exporters (s3,
+  # azureBlob) keep their sending queue in the file_storage extension, so
+  # batches waiting for an upload survive a collector crash or restart.
+  # The default emptyDir lives as long as the pod: it survives container
+  # restarts (crashes, OOM kills) but not pod deletion or rescheduling. A
+  # PVC survives those too, but needs one volume per pod (a StatefulSet, or
+  # replicas: 1) and usually podSecurityContext.fsGroup: 65532.
+  persistentQueue:
+    enabled: true
+    volume:
+      emptyDir: {}
 
   # Identity for the archive exporters below. Leave create: false to run as
   # the namespace's default ServiceAccount. For cloud workload identity,

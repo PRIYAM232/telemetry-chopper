@@ -1,5 +1,15 @@
 # Release notes
 
+## October 17, 2026
+
+### New
+
+- **Production gateway components.** The `otelcol-chopper` distribution now includes the `memory_limiter` processor and the `file_storage` extension. Every sample configuration runs `memory_limiter` first, and the pilot gateways and the Helm chart's archive exporters keep their queues on disk, so queued telemetry survives a crash or restart. See [Run gateways in production](deploy/run-gateways-in-production.md).
+
+### Changed
+
+- Helm chart: new `collector.memoryLimiter` and `collector.persistentQueue` values. Persistent queues are on by default, using an `emptyDir` volume.
+
 ## October 2, 2026
 
 ### New
