@@ -23,6 +23,16 @@ controlPlane:
       memory: 256Mi
     limits:
       memory: 512Mi
+  # The first operator, created on the first sign-in to an empty database.
+  # They must choose a new password then; once any operator exists these
+  # are ignored. The install notes print the command to read the password.
+  admin:
+    email: admin@localhost
+    # Empty generates a random password, kept across upgrades.
+    password: ""
+    # Name of an existing Secret with keys CHOPPER_ADMIN_EMAIL and
+    # CHOPPER_ADMIN_PASSWORD, used instead of the two values above.
+    existingSecret: ""
 
 migrator:
   # The control-plane Dockerfile's `builder` stage — the only image carrying

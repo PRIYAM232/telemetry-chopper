@@ -30,6 +30,7 @@ Telemetry Chopper measures the bytes and events your rules keep away from your v
 
 ## Deploy Telemetry Chopper
 
+- [Sign in, manage operators and review the audit log](deploy/sign-in-and-operators.md): the first sign-in, adding teammates, and who changed what.
 - [Run gateways in production](deploy/run-gateways-in-production.md): limit memory use and keep queued telemetry across crashes and restarts.
 
 ## Monitor Telemetry Chopper

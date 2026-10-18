@@ -84,6 +84,11 @@ services:
       target: runner
     environment:
       DATABASE_URL: postgresql://chopper:chopper@postgres:5432/chopper_control?schema=public
+      # The first operator, created on the first sign-in to an empty
+      # database (they must choose a new password then). Ignored once any
+      # operator exists. Override both for anything beyond local evaluation.
+      CHOPPER_ADMIN_EMAIL: ${CHOPPER_ADMIN_EMAIL:-admin@localhost}
+      CHOPPER_ADMIN_PASSWORD: ${CHOPPER_ADMIN_PASSWORD:-chopper-admin-dev}
     ports:
       - "127.0.0.1:${CHOPPER_UI_PORT:-3300}:3000"
     depends_on:

@@ -333,3 +333,87 @@ model CollectorInstance {
   @@id([fleetId, instanceId])
   @@index([lastSeenAt])
 }
+
+// ---------------------------------------------------------------------------
+// Operator authentication and audit trail (issue #10)
+// ---------------------------------------------------------------------------
+
+// A person who signs in to the dashboard. Every operator can manage rules,
+// pricing and other operators; there are no roles yet. The first operator is
+// created from CHOPPER_ADMIN_EMAIL / CHOPPER_ADMIN_PASSWORD on the first
+// sign-in to an empty table (see src/lib/auth.ts), later ones from
+// /settings/operators.
+model Operator {
+  id                 String    @id @default(uuid()) @db.Uuid
+  // Stored lowercased: sign-in matches case-insensitively.
+  email              String    @unique
+  name               String?
+  // scrypt, self-describing: "scrypt$N$r$p$<salt>$<hash>" (src/lib/password.ts).
+  passwordHash       String
+  // Set for operators whose password someone else chose (the env bootstrap,
+  // or an operator added from the dashboard): they must pick their own
+  // before they can use the dashboard.
+  mustChangePassword Boolean   @default(false)
+  lastSignInAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions    OperatorSession[]
+  auditEvents AuditEvent[]
+}
+
+// A signed-in browser. The cookie carries a random token; only its SHA-256
+// is stored, so a database leak doesn't hand out live sessions.
+model OperatorSession {
+  // hex SHA-256 of the cookie token.
+  id         String   @id
+  operatorId String   @db.Uuid
+  operator   Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([operatorId])
+}
+
+enum AuditAction {
+  RULE_CREATED
+  RULE_PAUSED
+  RULE_RESUMED
+  RULE_DELETED
+  RULE_RESTORED
+  RATE_CARD_UPDATED
+  COMMITMENT_UPDATED
+  EGRESS_UPDATED
+  OPERATOR_SIGNED_IN
+  OPERATOR_SIGN_IN_FAILED
+  OPERATOR_SIGNED_OUT
+  OPERATOR_CREATED
+  OPERATOR_REMOVED
+  OPERATOR_PASSWORD_CHANGED
+}
+
+// Who changed what, and when. Append-only: nothing in the app updates or
+// deletes these rows. Deliberately no foreign keys to rules or fleets, so the
+// trail outlives what it describes (rules are hard-deleted when their undo
+// window closes); actor is the operator's email at the time, so it survives
+// the operator's removal too.
+model AuditEvent {
+  id         String      @id @default(uuid()) @db.Uuid
+  createdAt  DateTime    @default(now())
+  operatorId String?     @db.Uuid
+  operator   Operator?   @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+  // The operator's email; for a failed sign-in, the email that was tried.
+  actor      String
+  action     AuditAction
+  fleetId    String?     @db.Uuid
+  // The rule or operator acted on, by id and by its name at the time.
+  targetId   String?
+  targetName String?
+  // Action-specific snapshot: the rule as created, the saved rate card, ...
+  details    Json?
+
+  @@index([createdAt])
+  @@index([fleetId, createdAt])
+}

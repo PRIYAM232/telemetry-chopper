@@ -4,6 +4,8 @@
 
 ### New
 
+- **Operator sign-in.** The dashboard, pricing settings and every change now require signing in. Each person has their own operator account; add and remove them on the new **Operators** page. The first operator comes from `CHOPPER_ADMIN_EMAIL` and `CHOPPER_ADMIN_PASSWORD` and must choose a new password at first sign-in. See [Sign in, manage operators and review the audit log](deploy/sign-in-and-operators.md).
+- **Audit log.** A new **Audit log** page records every rule, pricing and operator change, and every sign-in, with who did it and when.
 - **Ignore case.** `EQUALS`, `CONTAINS` and `REGEX_MATCH` conditions have an **Ignore case** option, so one rule matches `INFO`, `info` and `Info`. See [Ignore case](rules/README.md#ignore-case).
 - **Severity number.** Log rules can match `log.severity_number`, which every SDK sets the same way, and the new `LESS_THAN` operator, for example `log.severity_number` `LESS_THAN` `13` for INFO and below. See [Conditions](rules/README.md#conditions).
 - **Fleet-wide THROTTLE limits.** THROTTLE rules have a **Limit applies to** setting. **Whole fleet**, the default for new rules, splits the rate between the collectors currently reporting, so several gateway replicas together pass at most the rate. **Each collector** keeps the previous behavior. See [Set THROTTLE limits for several gateways](rules/README.md#set-throttle-limits-for-several-gateways).
@@ -12,6 +14,8 @@
 
 ### Changed
 
+- Upgrading: sign in with `CHOPPER_ADMIN_EMAIL` / `CHOPPER_ADMIN_PASSWORD` after this release. The Docker Compose, sandbox and pilot stacks default to `admin@localhost` / `chopper-admin-dev`; the Helm chart generates a password into the `<release>-admin` Secret (new `controlPlane.admin` values). Collectors need no changes.
+- `/` now redirects to the dashboard (or the sign-in page) instead of showing the framework's starter page.
 - The dashboard rejects `GREATER_THAN` and `LESS_THAN` values that aren't numbers. Collectors previously never matched such rules.
 - Upgrade collectors before creating ignore-case, `LESS_THAN` or `log.severity_number` rules. Older collectors match them case-sensitively or not at all.
 - Existing THROTTLE rules apply to each collector, as before. Their badge now says **per collector** instead of **global**.

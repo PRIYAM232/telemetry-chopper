@@ -58,7 +58,7 @@ The first run fetches the demo at its pinned release into `deploy/pilot/.demo/`,
 | Astronomy Shop | http://localhost:8180 |
 | Load generator (Locust) | http://localhost:8180/loadgen/ |
 | Feature flags (flagd UI) | http://localhost:8180/feature |
-| Telemetry Chopper dashboard | http://localhost:3300/dashboard |
+| Telemetry Chopper dashboard | http://localhost:3300/dashboard (sign in as `admin@localhost` / `chopper-admin-dev`, then choose a new password) |
 | Grafana | http://localhost:3301 (no login) |
 | Prometheus | http://localhost:9390 |
 
