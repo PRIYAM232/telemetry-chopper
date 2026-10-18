@@ -14,6 +14,7 @@ import { startTransition, useActionState, useEffect, useRef, useState } from "re
 import { ConditionOp, PolicyAction, SampleScope } from "@/generated/prisma/enums";
 import { ActionFields } from "./action-fields";
 import { createRule, type CreateRuleState } from "./actions";
+import { IGNORE_CASE_OPS } from "@/lib/conditions";
 import { Field, inputClass } from "./form-ui";
 
 const initialState: CreateRuleState = { error: null };
@@ -23,6 +24,8 @@ export function CreateRuleForm({ fleetId }: { fleetId: string }) {
   const formRef = useRef<HTMLFormElement>(null);
   // Controlled so the post-save reset keeps it, like Action and Signal.
   const [conditionOp, setConditionOp] = useState<string>(ConditionOp.EQUALS);
+  // Controlled like the selects, so it carries over to the next rule too.
+  const [ignoreCase, setIgnoreCase] = useState(false);
   // Lifted out of ActionFields: a whole-trace SAMPLE rule has no condition
   // (issue #45), so the Condition inputs below depend on both.
   const [action, setAction] = useState<string>(PolicyAction.DROP);
@@ -41,7 +44,11 @@ export function CreateRuleForm({ fleetId }: { fleetId: string }) {
     // is the whole job; the selects are controlled and simply keep theirs.
     const form = formRef.current;
     if (form && state !== initialState && state.error === null) {
-      for (const input of form.querySelectorAll<HTMLInputElement>("input:not([type=hidden])")) {
+      // Checkboxes are skipped: clearing a checkbox's value would make it
+      // submit "" instead of "on".
+      for (const input of form.querySelectorAll<HTMLInputElement>(
+        "input:not([type=hidden]):not([type=checkbox])",
+      )) {
         input.value = "";
       }
       form.querySelector<HTMLInputElement>("input[name=name]")?.focus();
@@ -100,6 +107,24 @@ export function CreateRuleForm({ fleetId }: { fleetId: string }) {
                 className={inputClass}
               />
             </div>
+            {IGNORE_CASE_OPS.has(conditionOp) && (
+              <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400">
+                <input
+                  type="checkbox"
+                  name="conditionIgnoreCase"
+                  value="on"
+                  checked={ignoreCase}
+                  onChange={(e) => setIgnoreCase(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-zinc-900 dark:accent-zinc-100"
+                />
+                {/* One flex item, so the text wraps as a sentence. */}
+                <span>
+                  Ignore case (matches <code className="font-mono">INFO</code>,{" "}
+                  <code className="font-mono">info</code> and{" "}
+                  <code className="font-mono">Info</code>)
+                </span>
+              </label>
+            )}
           </div>
         </Field>
       )}

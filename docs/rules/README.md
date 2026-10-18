@@ -8,7 +8,7 @@ A Telemetry Chopper **rule** tells your collectors what to do with matching tele
 |---|---|---|
 | **DROP** | Removes matching records in the collector. | Ingest, indexing and egress |
 | **SAMPLE** | Keeps a fraction of traces and drops the rest. By default it samples whole traces, so every span of a trace is kept or dropped together. See [Sample whole traces](#sample-whole-traces). | Ingest, indexing and egress on the dropped share |
-| **THROTTLE** | Limits matching records to a rate (events per second), optionally per attribute value such as `tenant_id`. Records over the limit are dropped. The limit applies to each collector separately. | Ingest, indexing and egress on the excess |
+| **THROTTLE** | Limits matching records to a rate (events per second), optionally per attribute value such as `tenant_id`. Records over the limit are dropped. The limit covers the whole fleet by default. See [Set THROTTLE limits for several gateways](#set-throttle-limits-for-several-gateways). | Ingest, indexing and egress on the excess |
 | **REDACT** | Masks the matched value, or only the substrings a regular expression matches, before data leaves your network. | Nothing; the record is still sent |
 | **ROUTE** | Tags matching data so the collector's routing connector sends it to a different pipeline, such as cold storage. | Nothing; the record is still sent |
 | **EXCLUDE_INDEX** | Forwards matching records but marks them so your vendor keeps them out of its paid search index. See [Keep events out of your vendor's index](exclude-from-index.md). | Indexing only |
@@ -43,9 +43,22 @@ The rule card shows **misses N% of spans · may break traces** when collectors s
 
 SAMPLE rules created before October 17, 2026 apply to matching spans only. To switch one to whole traces, create a new SAMPLE rule with **Whole traces** and delete the old one.
 
-### Size THROTTLE limits for your gateway count
+### Set THROTTLE limits for several gateways
 
-Each collector enforces a THROTTLE rule's limit on the traffic it sees. With several gateway replicas sharing the load, the fleet-wide rate can reach the limit times the number of replicas. To cap the fleet at a rate, divide it by the number of replicas. Each collector allows a burst of one second's worth of records, so sources that send in large, infrequent batches can pass less than the limit.
+Each collector enforces a THROTTLE rule on the traffic it sees. A rule's **Limit applies to** setting decides what the rate means when several gateways share the load:
+
+| Limit applies to | What the rate limits | With 3 gateways and a 30/s rule |
+|---|---|---|
+| **Whole fleet** (default) | All collectors together | Each collector allows 10/s; the fleet passes at most 30/s |
+| **Each collector** | Every collector separately | Each collector allows 30/s; the fleet passes up to 90/s |
+
+For **Whole fleet**, the control plane counts the collectors that sent a heartbeat recently and serves that count with the rules. Each collector enforces its share, the rate divided by that count, so the shares add up to the rate. When a collector joins or leaves, the others pick up the new count on their next poll. A collector that stops reporting stops counting after about three of its stats intervals, at least 30 seconds.
+
+The split assumes the gateways share the matching traffic about evenly, as they do behind a load balancer. If one gateway gets most of it, the fleet passes less than the rate, never more.
+
+Each bucket holds one second of its rate by default, so a source that sends large batches every few seconds can pass less than the rate. Set **Burst (seconds)** to let a bucket hold more, for example `5` for a source that sends every 5 seconds.
+
+The rule card shows the scope in the THROTTLE badge, for example **Limit: 30/s · fleet-wide**. Hover over the badge to see the current split. THROTTLE rules created before October 18, 2026 apply to each collector.
 
 ## Conditions
 
@@ -57,13 +70,23 @@ A condition compares one field with a value: `<field> <operator> <value>`.
 | `CONTAINS` | contains the value. |
 | `REGEX_MATCH` | matches the regular expression. Patterns use RE2 syntax, so lookarounds and backreferences aren't supported. The dashboard rejects patterns RE2 can't compile. |
 | `GREATER_THAN` | is a number greater than the value. |
+| `LESS_THAN` | is a number less than the value. |
 | `EXISTS` | is present (the value is ignored). |
+
+The dashboard rejects a `GREATER_THAN` or `LESS_THAN` value that isn't a number.
+
+### Ignore case
+
+`EQUALS`, `CONTAINS` and `REGEX_MATCH` are case-sensitive unless you select **Ignore case**. Telemetry often spells the same value differently depending on the SDK, so `log.severity` `EQUALS` `INFO` misses `info`. With **Ignore case**, `EQUALS` `INFO` matches `INFO`, `info` and `Info`, `CONTAINS` `timeout` matches `Upstream TIMEOUT`, and a REDACT rule with `REGEX_MATCH` masks every casing of the match. The rule card shows **ignore case** after the condition.
+
+**Ignore case** compares whole values, so `EQUALS` `info` still doesn't match `Information`. To match every spelling of a log level, use `log.severity_number` instead.
 
 The field is looked up on the record's attributes first, then on its resource attributes (for example `service.name`). A few special fields read the record itself:
 
 | Field | Signal | Reads |
 |---|---|---|
-| `log.severity` | Logs | The severity text, such as `ERROR`. SDKs spell levels differently (`INFO`, `info`, `Information`), so prefer `REGEX_MATCH` with `(?i)`, for example `(?i)^info`. |
+| `log.severity` | Logs | The severity text, such as `ERROR`. SDKs spell levels differently (`INFO`, `info`, `Information`), so select **Ignore case**, or use `log.severity_number`. |
+| `log.severity_number` | Logs | The severity number, which SDKs set consistently: 1–4 TRACE, 5–8 DEBUG, 9–12 INFO, 13–16 WARN, 17–20 ERROR, 21–24 FATAL. For example, `LESS_THAN` `13` matches INFO and below, and `GREATER_THAN` `16` matches ERROR and above. Records without a severity number don't match. |
 | `log.body` | Logs | The log message body |
 | `metric.name` | Metrics | The metric name, such as `http.server.duration` |
 
@@ -81,7 +104,7 @@ Metric rules can match on `metric.name` or on resource attributes, but not on da
 1. Open the dashboard. In **Policy rules**, find the **New rule** form.
 2. Enter a **Name**, and choose an **Action** and a **Signal**.
 3. Under **Condition**, enter the field, choose an operator and enter the value.
-4. Fill in any fields the action needs: a sample rate and **Applies to** for SAMPLE, a rate and optional group-by attribute for THROTTLE, or a destination for ROUTE. A SAMPLE rule that applies to whole traces has no condition, so the form hides **Condition**.
+4. Fill in any fields the action needs: a sample rate and **Applies to** for SAMPLE, a rate, an optional group-by attribute, **Limit applies to** and an optional burst for THROTTLE, or a destination for ROUTE. A SAMPLE rule that applies to whole traces has no condition, so the form hides **Condition**.
 5. Click **Create rule**.
 
 The rule appears in the list and collectors start enforcing it on their next poll.
@@ -113,6 +136,18 @@ Not as whole traces. A collector decides on each span as it arrives, and a trace
 ### What happens to a whole-trace SAMPLE rule on an older collector?
 
 Collectors released before October 17, 2026 don't know the setting, so they don't apply the rule, and its card shows **no matches**. Upgrade your collectors before you create whole-trace SAMPLE rules.
+
+### How do I drop debug and info logs from every service?
+
+Create a DROP rule for **LOGS** on `log.severity_number` `LESS_THAN` `13`. It matches TRACE, DEBUG and INFO records however each SDK spells the level.
+
+### What happens to an ignore-case or LESS_THAN rule on an older collector?
+
+Collectors released before October 18, 2026 compare case-sensitively and don't know `LESS_THAN` or `log.severity_number`, so those rules match less, or nothing. Upgrade your collectors before you create them.
+
+### What happens to a fleet-wide THROTTLE rule on an older collector?
+
+Collectors released before October 18, 2026 don't report themselves to the control plane and enforce the full rate on their own. Upgrade your collectors before you rely on a fleet-wide limit.
 
 ### Why does a ROUTE rule move records I didn't match?
 

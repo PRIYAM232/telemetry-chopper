@@ -146,6 +146,18 @@ const (
 	SampleScopeSpan = "SPAN"
 )
 
+// THROTTLE scopes (issue #46): whose traffic a THROTTLE rule's rate limits.
+const (
+	// ThrottleScopeFleet limits the whole fleet to the rate: each collector
+	// enforces rate / the number of collectors the control plane reports as
+	// active, so the collectors' limits add up to the rate.
+	ThrottleScopeFleet = "FLEET"
+	// ThrottleScopeCollector limits each collector to the full rate — the
+	// original behavior, and what a rule without a scope gets. With N
+	// collectors the fleet admits up to N × the rate.
+	ThrottleScopeCollector = "COLLECTOR"
+)
+
 // Target signals.
 const (
 	SignalTraces  = "TRACES"
@@ -157,8 +169,12 @@ const (
 const (
 	OpEquals      = "EQUALS"
 	OpGreaterThan = "GREATER_THAN"
-	OpContains    = "CONTAINS"
-	OpExists      = "EXISTS"
+	// OpLessThan is GREATER_THAN's mirror: the field is a number below the
+	// value. Added with log.severity_number (issue #47) so "INFO and below"
+	// (severity number < 13) is expressible.
+	OpLessThan = "LESS_THAN"
+	OpContains = "CONTAINS"
+	OpExists   = "EXISTS"
 	// OpRegexMatch matches when the rule's conditionValue, treated as a Go
 	// regexp, finds at least one match in the field. Patterns are compiled
 	// once at ruleset-publication time (compileRules), never on the consume
@@ -194,14 +210,27 @@ type PolicyRule struct {
 	ThrottleRate *int `json:"throttleRate"`
 	// ThrottleGroupBy is only set for THROTTLE rules: the attribute key whose
 	// value partitions the rule's token buckets (e.g. "tenant_id"). JSON null
-	// leaves the zero string; "" means one shared bucket — a global limit.
+	// leaves the zero string; "" means one shared bucket for every match.
 	ThrottleGroupBy string `json:"throttleGroupBy"`
+	// ThrottleScope is only set for THROTTLE rules: ThrottleScopeFleet or
+	// ThrottleScopeCollector. JSON null leaves the zero string, which means
+	// per collector — the behavior every rule had before scopes existed.
+	ThrottleScope string `json:"throttleScope"`
+	// ThrottleBurstSeconds is only set for THROTTLE rules: how many seconds
+	// of the rate a bucket can hold, so a source that sends in large,
+	// infrequent batches isn't clamped below the rate. Nil means 1.
+	ThrottleBurstSeconds *int `json:"throttleBurstSeconds"`
 
 	TargetSignal string `json:"targetSignal"`
 
 	ConditionField string `json:"conditionField"`
 	ConditionOp    string `json:"conditionOp"`
 	ConditionValue string `json:"conditionValue"`
+	// ConditionIgnoreCase makes EQUALS, CONTAINS and REGEX_MATCH compare
+	// case-insensitively (Unicode simple case folding), so one rule matches
+	// INFO, info and Info (issue #47). Ignored by the other operators. A
+	// control plane that predates it omits the key, which reads as false.
+	ConditionIgnoreCase bool `json:"conditionIgnoreCase"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -213,4 +242,8 @@ type PolicyRule struct {
 type FleetPolicyResponse struct {
 	FleetID string       `json:"fleet_id"`
 	Rules   []PolicyRule `json:"rules"`
+	// ActiveCollectors is how many collectors the control plane has heard a
+	// heartbeat from recently: the N a fleet-wide THROTTLE rule divides its
+	// rate by. Absent (older control plane) or 0 reads as 1 — this collector.
+	ActiveCollectors int `json:"active_collectors"`
 }

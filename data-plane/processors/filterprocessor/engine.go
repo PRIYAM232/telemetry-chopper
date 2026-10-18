@@ -3,7 +3,9 @@ package filterprocessor
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +14,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.uber.org/zap"
 )
 
@@ -47,6 +50,12 @@ type ruleEngine struct {
 	logger *zap.Logger
 
 	httpClient *http.Client
+
+	// collectorID identifies this collector process in heartbeats, so the
+	// control plane can count the fleet's active collectors for fleet-wide
+	// THROTTLE rules (issue #46). The collector's service.instance.id, or a
+	// random ID when the resource lacks one.
+	collectorID string
 
 	rulesMu       sync.RWMutex
 	rules         []compiledRule // last known-good ruleset, evaluation-ready; nil until first successful sync
@@ -359,7 +368,7 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 	// Compile OUTSIDE the write lock: regexp.Compile is the expensive step
 	// this design exists to keep away from the hot paths, and holding rulesMu
 	// through it would stall every consumer on snapshotRules meanwhile.
-	compiled := compileRules(payload.Rules, e.logger)
+	compiled := compileRulesForFleet(payload.Rules, payload.ActiveCollectors, e.logger)
 	// Hand each rule its long-lived counters before anything can evaluate
 	// against the new slice.
 	e.ruleStats.adopt(compiled)
@@ -394,6 +403,19 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 				zap.String("action", r.ActionType),
 				zap.String("state", r.state),
 				zap.String("reason", r.stateReason),
+			)
+		}
+	}
+	// A fleet-wide limit's per-collector share moves with the collector
+	// count, so say what this collector is enforcing (issue #46).
+	for i := range compiled {
+		r := &compiled[i]
+		if r.state == ruleStateEnforced && r.ThrottleScope == ThrottleScopeFleet {
+			e.logger.Info("chopper_filter policy sync: fleet-wide THROTTLE share",
+				zap.String("rule", r.Name),
+				zap.Int("fleet_rate", *r.ThrottleRate),
+				zap.Int("active_collectors", max(1, payload.ActiveCollectors)),
+				zap.Float64("collector_rate", r.collectorRate),
 			)
 		}
 	}
@@ -450,6 +472,12 @@ type statsPayload struct {
 	// activity this interval, so idle rules cost nothing on the wire. A
 	// control plane that predates it ignores the key.
 	Rules []ruleStatsPayload `json:"rules,omitempty"`
+
+	// CollectorID and IntervalSeconds let the control plane count active
+	// collectors: one counts as active until about three of its intervals
+	// pass without a heartbeat (issue #46).
+	CollectorID     string  `json:"collector_id,omitempty"`
+	IntervalSeconds float64 `json:"interval_seconds,omitempty"`
 }
 
 // runStatsLoop reports immediately on startup — an all-zero report is the
@@ -484,6 +512,8 @@ func (e *ruleEngine) runStatsLoop(ctx context.Context) {
 // exact, which is all the dashboard aggregates.
 func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 	stats := statsPayload{
+		CollectorID:     e.collectorID,
+		IntervalSeconds: e.cfg.StatsInterval.Seconds(),
 		TracesReceived:  e.tracesReceived.Swap(0),
 		TracesDropped:   e.tracesDropped.Swap(0),
 		LogsReceived:    e.logsReceived.Swap(0),
@@ -594,4 +624,18 @@ func (e *ruleEngine) postStats(ctx context.Context, stats statsPayload) error {
 		return fmt.Errorf("stats endpoint returned status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// collectorInstanceID returns the collector's service.instance.id (the
+// collector sets one per process by default), or a random ID when absent.
+func collectorInstanceID(res pcommon.Resource) string {
+	// A zero Resource (settings built without one) has no attributes to read.
+	if res != (pcommon.Resource{}) {
+		if v, ok := res.Attributes().Get("service.instance.id"); ok && v.AsString() != "" {
+			return v.AsString()
+		}
+	}
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
