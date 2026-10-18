@@ -7,7 +7,7 @@ A Telemetry Chopper **rule** tells your collectors what to do with matching tele
 | Action | What it does | Saves |
 |---|---|---|
 | **DROP** | Removes matching records in the collector. | Ingest, indexing and egress |
-| **SAMPLE** | Keeps a fraction of matching traces and drops the rest. All spans of a trace share the same keep-or-drop decision, so traces stay complete. | Ingest, indexing and egress on the dropped share |
+| **SAMPLE** | Keeps a fraction of traces and drops the rest. By default it samples whole traces, so every span of a trace is kept or dropped together. See [Sample whole traces](#sample-whole-traces). | Ingest, indexing and egress on the dropped share |
 | **THROTTLE** | Limits matching records to a rate (events per second), optionally per attribute value such as `tenant_id`. Records over the limit are dropped. The limit applies to each collector separately. | Ingest, indexing and egress on the excess |
 | **REDACT** | Masks the matched value, or only the substrings a regular expression matches, before data leaves your network. | Nothing; the record is still sent |
 | **ROUTE** | Tags matching data so the collector's routing connector sends it to a different pipeline, such as cold storage. | Nothing; the record is still sent |
@@ -28,7 +28,20 @@ A rule whose action doesn't apply to its signal is saved, but collectors don't e
 
 ### Sample whole traces
 
-A SAMPLE rule only samples the spans its condition matches. If some spans of a trace don't match, they're always kept while their parents may be sampled out, leaving traces with orphaned spans. Spans from browsers, proxies and third-party components often lack attributes your services set, such as `service.namespace`. To sample whole traces, use a condition every span has, for example `service.name` `EXISTS`.
+A SAMPLE rule's **Applies to** setting chooses which spans its keep-or-drop decision covers:
+
+| Applies to | What it samples | Condition |
+|---|---|---|
+| **Whole traces** (default) | Every trace. All spans of a trace are kept or dropped together, so traces stay complete. | None |
+| **Matching spans only** | Only the spans the condition matches. | Required |
+
+The decision is based on the trace ID, so every collector reaches the same decision for a trace without coordinating.
+
+With **Matching spans only**, spans the condition misses are always kept, even when the rest of their trace is sampled out. Their parents can then be missing, which breaks the trace in your backend. Spans from browsers, proxies and third-party components often lack attributes your services set, such as `service.namespace`. Use **Matching spans only** with a condition every span of the traces you sample has.
+
+The rule card shows **misses N% of spans · may break traces** when collectors see spans that a **Matching spans only** rule's condition misses. See [Monitor what each rule is doing](monitor-rule-activity.md#find-sample-rules-that-break-traces).
+
+SAMPLE rules created before October 17, 2026 apply to matching spans only. To switch one to whole traces, create a new SAMPLE rule with **Whole traces** and delete the old one.
 
 ### Size THROTTLE limits for your gateway count
 
@@ -68,7 +81,7 @@ Metric rules can match on `metric.name` or on resource attributes, but not on da
 1. Open the dashboard. In **Policy rules**, find the **New rule** form.
 2. Enter a **Name**, and choose an **Action** and a **Signal**.
 3. Under **Condition**, enter the field, choose an operator and enter the value.
-4. Fill in any fields the action needs: a sample rate for SAMPLE, a rate and optional group-by attribute for THROTTLE, or a destination for ROUTE.
+4. Fill in any fields the action needs: a sample rate and **Applies to** for SAMPLE, a rate and optional group-by attribute for THROTTLE, or a destination for ROUTE. A SAMPLE rule that applies to whole traces has no condition, so the form hides **Condition**.
 5. Click **Create rule**.
 
 The rule appears in the list and collectors start enforcing it on their next poll.
@@ -92,6 +105,14 @@ Collectors keep enforcing the last ruleset they received and keep forwarding tel
 ### Can two rules match the same record?
 
 Yes. Every rule that matches is applied in order until one drops the record. For example, a REDACT rule can mask a field and a later ROUTE rule can send the same record to cold storage.
+
+### Can I sample only some traces, such as one service's?
+
+Not as whole traces. A collector decides on each span as it arrives, and a trace's spans arrive from many services at different times, so a condition met by one span can't be applied to the rest of its trace. Use **Matching spans only** with a condition every span of those traces has, or sample in your SDKs.
+
+### What happens to a whole-trace SAMPLE rule on an older collector?
+
+Collectors released before October 17, 2026 don't know the setting, so they don't apply the rule, and its card shows **no matches**. Upgrade your collectors before you create whole-trace SAMPLE rules.
 
 ### Why does a ROUTE rule move records I didn't match?
 

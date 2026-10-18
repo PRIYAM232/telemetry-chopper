@@ -68,6 +68,9 @@ async function main() {
       isActive: true,
       actionType: "SAMPLE",
       sampleRate: 0.25,
+      // Samples only the checkout-service spans, so the dashboard shows the
+      // "matching spans only" scope next to the rule (issue #45).
+      sampleScope: "SPAN",
       targetSignal: "TRACES",
       conditionField: "service.name",
       conditionOp: "EQUALS",

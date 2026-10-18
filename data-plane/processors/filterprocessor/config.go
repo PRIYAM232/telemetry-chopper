@@ -131,6 +131,21 @@ const (
 	ActionExcludeIndex = "EXCLUDE_INDEX"
 )
 
+// SAMPLE scopes (issue #45): which spans a SAMPLE rule's keep-or-drop verdict
+// applies to.
+const (
+	// SampleScopeTrace samples whole traces: the verdict, keyed on the
+	// TraceID alone, applies to every span the rule sees and the condition is
+	// not consulted. Every span of a trace reaches the same verdict, so a
+	// trace is kept or dropped whole and no span loses its parent.
+	SampleScopeTrace = "TRACE"
+	// SampleScopeSpan samples only the spans matching the condition — the
+	// original behavior, and what a rule without a scope (an older control
+	// plane) gets. Spans of a sampled-out trace that the condition misses
+	// are kept, so their parents can go missing.
+	SampleScopeSpan = "SPAN"
+)
+
 // Target signals.
 const (
 	SignalTraces  = "TRACES"
@@ -164,6 +179,10 @@ type PolicyRule struct {
 	ActionType string `json:"actionType"`
 	// SampleRate is only set for SAMPLE rules (fraction to keep, in [0,1]).
 	SampleRate *float64 `json:"sampleRate"`
+	// SampleScope is only set for SAMPLE rules: SampleScopeTrace or
+	// SampleScopeSpan. JSON null leaves the zero string, which means span
+	// scope — the behavior every rule had before scopes existed.
+	SampleScope string `json:"sampleScope"`
 	// TargetDestination is only set for ROUTE rules: the destination stamped
 	// into chopper.routing.destination for the routing connector to key on.
 	// Prisma serializes NULL for other actions; JSON null leaves the zero

@@ -7,7 +7,7 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PolicyAction, TargetSignal, ConditionOp } from "@/generated/prisma/enums";
+import { PolicyAction, TargetSignal, ConditionOp, SampleScope } from "@/generated/prisma/enums";
 import type { PolicyRuleModel } from "@/generated/prisma/models";
 import { formatBytes } from "@/lib/format";
 import { computeEgressSavings, getEgressConfig } from "@/lib/egress";
@@ -538,6 +538,19 @@ function RuleCard({
   const regexError =
     rule.conditionOp === ConditionOp.REGEX_MATCH ? re2SyntaxError(rule.conditionValue) : null;
 
+  // SAMPLE scope (issue #45). A whole-trace rule has no condition. A
+  // span-scoped one leaves the spans its condition misses in sampled-out
+  // traces, orphaned from their parents; its collectors report how many
+  // spans it evaluated, so the share it misses is measured, not guessed.
+  const isSample = rule.actionType === PolicyAction.SAMPLE;
+  const wholeTrace = isSample && rule.sampleScope === SampleScope.TRACE;
+  const spanSample = isSample && !wholeTrace;
+  const missedShare =
+    // A rule that matched nothing gets the "no matches" chip instead.
+    spanSample && stats !== null && stats.matched > 0 && stats.evaluated > stats.matched
+      ? (stats.evaluated - stats.matched) / stats.evaluated
+      : 0;
+
   return (
     // Layout is identical in both states (issue #17): the header row never
     // wraps, so Pause/Resume and Delete stay pinned top-right while the rule
@@ -613,8 +626,14 @@ function RuleCard({
             rule.isActive ? "" : "opacity-60"
           }`}
         >
-          {rule.conditionField} {rule.conditionOp}
-          {rule.conditionOp !== ConditionOp.EXISTS ? ` "${rule.conditionValue}"` : ""}
+          {wholeTrace ? (
+            "every trace"
+          ) : (
+            <>
+              {rule.conditionField} {rule.conditionOp}
+              {rule.conditionOp !== ConditionOp.EXISTS ? ` "${rule.conditionValue}"` : ""}
+            </>
+          )}
         </code>
         <span className={`text-xs text-zinc-400 dark:text-zinc-500 ${rule.isActive ? "" : "opacity-60"}`}>
           {rule.targetSignal.toLowerCase()} · added {dateFmt.format(rule.createdAt)}
@@ -638,6 +657,22 @@ function RuleCard({
             title={`Collectors evaluated this rule against live ${rule.targetSignal.toLowerCase()} traffic but its condition never matched. Check that "${rule.conditionField}" is spelled the way your telemetry spells it, and the value.`}
           >
             {windowLabel === "all time" ? "no matches yet" : `no matches in the ${windowLabel}`}
+          </span>
+        )}
+        {rule.isActive && spanSample && missedShare > 0 && (
+          <span
+            className="shrink-0 rounded-md bg-amber-50 px-2 py-0.5 text-xs text-amber-700 dark:bg-amber-950 dark:text-amber-400"
+            title={`This rule samples only the spans its condition matches. ${formatPct(missedShare)} of the spans it saw in the ${windowLabel} didn't match, and they're kept even when the rest of their trace is sampled out, which leaves spans whose parent is missing. Create a whole-trace SAMPLE rule to replace it, or use a condition every span has.`}
+          >
+            misses {formatPct(missedShare)} of spans · may break traces
+          </span>
+        )}
+        {rule.isActive && spanSample && missedShare === 0 && (
+          <span
+            className="shrink-0 rounded-md bg-zinc-100 px-2 py-0.5 text-xs text-zinc-500 dark:bg-zinc-900 dark:text-zinc-400"
+            title="This rule samples only the spans its condition matches. Spans it misses are kept even when the rest of their trace is sampled out. Fine when every span matches the condition."
+          >
+            matching spans only
           </span>
         )}
         {regexError !== null && (

@@ -13,7 +13,7 @@
 // session before mutating — see the Next.js data-security guide.
 
 import { revalidatePath } from "next/cache";
-import { ConditionOp, PolicyAction, TargetSignal } from "@/generated/prisma/enums";
+import { ConditionOp, PolicyAction, SampleScope, TargetSignal } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
 
@@ -50,15 +50,35 @@ export async function createRule(
   const name = formString(formData, "name");
   const actionType = formString(formData, "actionType");
   const targetSignal = formString(formData, "targetSignal");
-  const conditionField = formString(formData, "conditionField");
-  const conditionOp = formString(formData, "conditionOp");
+  let conditionField = formString(formData, "conditionField");
+  let conditionOp = formString(formData, "conditionOp");
   // EXISTS ignores the value; store the empty string by convention.
-  const conditionValue = formString(formData, "conditionValue");
+  let conditionValue = formString(formData, "conditionValue");
 
   if (!UUID_RE.test(fleetId)) return fail("invalid fleet id");
   if (!name) return fail("rule name is required");
-  if (!conditionField) return fail("condition field is required");
   if (!isEnumValue(PolicyAction, actionType)) return fail("invalid action type");
+
+  // A whole-trace SAMPLE rule has no condition (issue #45): it samples every
+  // trace, and the collector applies its verdict to every span so traces
+  // stay complete. Store the empty-field EXISTS convention; a collector that
+  // predates scopes reads that as a span-scoped rule matching nothing, so it
+  // fails open instead of sampling the wrong spans.
+  let sampleScope: SampleScope | null = null;
+  if (actionType === PolicyAction.SAMPLE) {
+    const scope = formString(formData, "sampleScope") || SampleScope.TRACE;
+    if (!isEnumValue(SampleScope, scope)) return fail("invalid sample scope");
+    sampleScope = scope;
+    if (scope === SampleScope.TRACE) {
+      conditionField = "";
+      conditionOp = ConditionOp.EXISTS;
+      conditionValue = "";
+    }
+  }
+
+  if (sampleScope !== SampleScope.TRACE && !conditionField) {
+    return fail("condition field is required");
+  }
   if (!isEnumValue(TargetSignal, targetSignal)) return fail("invalid target signal");
   if (!isEnumValue(ConditionOp, conditionOp)) return fail("invalid condition operator");
   if (conditionOp !== ConditionOp.EXISTS && !conditionValue) {
@@ -147,6 +167,7 @@ export async function createRule(
       name,
       actionType,
       sampleRate,
+      sampleScope,
       targetDestination,
       throttleRate,
       throttleGroupBy,

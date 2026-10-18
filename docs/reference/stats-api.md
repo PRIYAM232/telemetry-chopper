@@ -40,6 +40,7 @@ Each entry in `rules`:
 | `dropped` | Records this rule removed |
 | `dropped_bytes` | OTLP protobuf bytes of those records |
 | `unindexed` | Records this rule kept out of the index |
+| `evaluated` | Spans a SAMPLE rule that applies to matching spans only evaluated, matched or not. `0` for other rules. Optional; defaults to `0`. |
 
 Entries for rules that don't belong to the fleet, such as a rule deleted since the collector's last sync, are ignored.
 
@@ -56,8 +57,8 @@ Entries for rules that don't belong to the fleet, such as a rule deleted since t
   "logs_dropped_bytes": 281600,
   "logs_forwarded_bytes": 290000,
   "rules": [
-    { "rule_id": "0a000000-0000-4000-8000-000000000001", "matched": 640, "dropped": 640, "dropped_bytes": 73400, "unindexed": 0 },
-    { "rule_id": "0d000000-0000-4000-8000-000000000003", "matched": 1536, "dropped": 1024, "dropped_bytes": 281600, "unindexed": 0 }
+    { "rule_id": "0a000000-0000-4000-8000-000000000001", "matched": 640, "dropped": 640, "dropped_bytes": 73400, "unindexed": 0, "evaluated": 0 },
+    { "rule_id": "0d000000-0000-4000-8000-000000000003", "matched": 1536, "dropped": 1024, "dropped_bytes": 281600, "unindexed": 0, "evaluated": 0 }
   ]
 }
 ```

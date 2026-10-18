@@ -4,10 +4,15 @@
 
 ### New
 
+- **Whole-trace sampling.** SAMPLE rules have a new **Applies to** setting. **Whole traces**, the default for new rules, keeps or drops every span of a trace together, so sampling never leaves spans whose parent is missing. **Matching spans only** keeps the previous behavior. See [Sample whole traces](rules/README.md#sample-whole-traces).
+- **Broken-trace warning.** A SAMPLE rule that applies to matching spans only shows **misses N% of spans · may break traces** when its condition misses spans. See [Find SAMPLE rules that break traces](rules/monitor-rule-activity.md#find-sample-rules-that-break-traces).
 - **Production gateway components.** The `otelcol-chopper` distribution now includes the `memory_limiter` processor and the `file_storage` extension. Every sample configuration runs `memory_limiter` first, and the pilot gateways and the Helm chart's archive exporters keep their queues on disk, so queued telemetry survives a crash or restart. See [Run gateways in production](deploy/run-gateways-in-production.md).
 
 ### Changed
 
+- Existing SAMPLE rules apply to matching spans only, as before.
+- Collectors report a new `evaluated` count per rule in their heartbeat, and a new `sample_scope_not_supported` reason in `otelcol_chopper_filter_rule_status`.
+- Upgrade collectors before creating whole-trace SAMPLE rules. Older collectors don't apply them.
 - Helm chart: new `collector.memoryLimiter` and `collector.persistentQueue` values. Persistent queues are on by default, using an `emptyDir` volume.
 
 ## October 2, 2026
