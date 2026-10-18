@@ -74,6 +74,14 @@ type compiledRule struct {
 	state       string
 	stateReason string
 
+	// wholeTrace is true for a SAMPLE rule with SampleScopeTrace: its verdict
+	// applies to every span and the condition is skipped. spanSample is true
+	// for a span-scoped SAMPLE rule, which counts every span it evaluates so
+	// the dashboard can show how many spans its condition misses. Derived
+	// once here so the hot path tests a bool, not a string.
+	wholeTrace bool
+	spanSample bool
+
 	// stats is the rule's per-rule tally (rulestats.go). Never nil:
 	// compileRules allocates it and the engine swaps in the rule's
 	// long-lived counters by ID before publishing the ruleset.
@@ -89,6 +97,10 @@ func compileRules(rules []PolicyRule, logger *zap.Logger) []compiledRule {
 	compiled := make([]compiledRule, len(rules))
 	for i := range rules {
 		compiled[i] = compiledRule{PolicyRule: rules[i], stats: newRuleCounters(&rules[i])}
+		if rules[i].ActionType == ActionSample {
+			compiled[i].wholeTrace = rules[i].SampleScope == SampleScopeTrace
+			compiled[i].spanSample = !compiled[i].wholeTrace
+		}
 
 		// THROTTLE buckets are allocated here, not on first match, so the
 		// hot paths only ever read the pointer. A rule whose rate is missing
@@ -149,6 +161,14 @@ func (r *compiledRule) maskMatches(s string) string {
 	return r.regex.ReplaceAllLiteralString(s, redactedPatternPlaceholder)
 }
 
+// sampleScopeKnown reports whether this collector implements a SAMPLE rule's
+// scope. Empty is span scope: rules from a control plane that predates
+// scopes keep their original behavior. A scope added by a newer control
+// plane is skipped (fail open) rather than guessed at.
+func sampleScopeKnown(scope string) bool {
+	return scope == "" || scope == SampleScopeSpan || scope == SampleScopeTrace
+}
+
 // conditionUsable reports whether the rule's condition can be evaluated at
 // all: a REGEX_MATCH rule whose pattern failed to compile has no working
 // condition, so it must be skipped — and not counted as enforced.
@@ -161,7 +181,7 @@ func conditionUsable(rule *compiledRule) bool {
 // (DROP, SAMPLE, REDACT, ROUTE, THROTTLE, EXCLUDE_INDEX). Any action added by a newer
 // control plane is fetched and cached but intentionally skipped. A SAMPLE
 // rule without a rate is malformed and likewise skipped — fail open rather
-// than guess a rate — and a ROUTE rule without a destination or a THROTTLE
+// than guess a rate — as is one whose scope this collector doesn't know; a ROUTE rule without a destination or a THROTTLE
 // rule without a positive rate (no limiterGroup compiled) get the same
 // treatment.
 func ruleAppliesTraces(rule *compiledRule) bool {
@@ -172,7 +192,7 @@ func ruleAppliesTraces(rule *compiledRule) bool {
 	case ActionDrop, ActionRedact, ActionExcludeIndex:
 		return true
 	case ActionSample:
-		return rule.SampleRate != nil
+		return rule.SampleRate != nil && sampleScopeKnown(rule.SampleScope)
 	case ActionRoute:
 		return rule.TargetDestination != ""
 	case ActionThrottle:

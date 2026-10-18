@@ -33,6 +33,7 @@ type ruleCounters struct {
 	dropped      atomic.Int64 // records this rule removed (DROP, unsampled SAMPLE, THROTTLE excess)
 	droppedBytes atomic.Int64 // OTLP protobuf bytes of those records
 	unindexed    atomic.Int64 // records this EXCLUDE_INDEX rule opted out of indexing that were forwarded
+	evaluated    atomic.Int64 // spans a span-scoped SAMPLE rule evaluated, matched or not (issue #45)
 
 	// Cumulative since process start, for the self-metrics.
 	totalMatched atomic.Int64
@@ -51,6 +52,13 @@ func (c *ruleCounters) countMatch() {
 	c.totalMatched.Add(1)
 }
 
+// countEvaluated records one span a span-scoped SAMPLE rule evaluated.
+// matched/evaluated is the share of spans its condition covers; spans it
+// misses keep their place in sampled-out traces, orphaned from their parents.
+func (c *ruleCounters) countEvaluated() {
+	c.evaluated.Add(1)
+}
+
 // countDrop records one record this rule removed and its size.
 func (c *ruleCounters) countDrop(bytes int64) {
 	c.dropped.Add(1)
@@ -66,6 +74,8 @@ type ruleStatsPayload struct {
 	Dropped      int64  `json:"dropped"`
 	DroppedBytes int64  `json:"dropped_bytes"`
 	Unindexed    int64  `json:"unindexed"`
+	// Evaluated is reported by span-scoped SAMPLE rules only; zero for the rest.
+	Evaluated int64 `json:"evaluated"`
 }
 
 // ruleStatsRegistry owns every rule's counters across ruleset swaps.
@@ -127,8 +137,9 @@ func (r *ruleStatsRegistry) drain() []ruleStatsPayload {
 			Dropped:      c.dropped.Swap(0),
 			DroppedBytes: c.droppedBytes.Swap(0),
 			Unindexed:    c.unindexed.Swap(0),
+			Evaluated:    c.evaluated.Swap(0),
 		}
-		if p.Matched != 0 || p.Dropped != 0 || p.DroppedBytes != 0 || p.Unindexed != 0 {
+		if p.Matched != 0 || p.Dropped != 0 || p.DroppedBytes != 0 || p.Unindexed != 0 || p.Evaluated != 0 {
 			out = append(out, p)
 		}
 	}
@@ -157,6 +168,7 @@ func (r *ruleStatsRegistry) restore(entries []ruleStatsPayload) {
 		c.dropped.Add(p.Dropped)
 		c.droppedBytes.Add(p.DroppedBytes)
 		c.unindexed.Add(p.Unindexed)
+		c.evaluated.Add(p.Evaluated)
 	}
 }
 

@@ -144,8 +144,10 @@ func (p *tracesProcessor) applyRules(rules []compiledRule, td ptrace.Traces) (dr
 // evaluateSpan runs every enforced rule against one span and returns the rule
 // that dropped it (nil if it survives) and the first EXCLUDE_INDEX rule that
 // opted it out of indexing (nil if none), so the caller can credit each
-// rule's counters. Every rule whose condition matches counts the match. REDACT, ROUTE and EXCLUDE_INDEX rules mutate the span (or its
-// resource) as a side effect but never drop it. Rules are independent
+// rule's counters. Every rule whose condition matches counts the match; a
+// whole-trace SAMPLE rule has no condition and matches every span. REDACT,
+// ROUTE and EXCLUDE_INDEX rules mutate the span (or its resource) as a side
+// effect but never drop it. Rules are independent
 // filters: a span survives only if no rule drops it, so neither a SAMPLE
 // keep-verdict nor a REDACT scrub nor a ROUTE tag shields the span from a
 // later DROP rule.
@@ -155,8 +157,13 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 		if !ruleAppliesTraces(rule) {
 			continue
 		}
-		if !evaluateCondition(rule, span, resAttrs) {
-			continue
+		if !rule.wholeTrace {
+			if rule.spanSample {
+				rule.stats.countEvaluated()
+			}
+			if !evaluateCondition(rule, span, resAttrs) {
+				continue
+			}
 		}
 		rule.stats.countMatch()
 
@@ -170,9 +177,11 @@ func (p *tracesProcessor) evaluateSpan(rules []compiledRule, span ptrace.Span, r
 			return rule, nil
 		case ActionSample:
 			// Deterministic head sampling keyed on the TraceID: every span of
-			// a trace computes the same bucket, so traces are kept or dropped
-			// whole — never split into orphaned children — with no coordination
-			// between spans, batches, or collector instances.
+			// a trace computes the same bucket, with no coordination between
+			// spans, batches, or collector instances. A whole-trace rule sees
+			// every span, so traces are kept or dropped whole. A span-scoped
+			// rule only sees spans its condition matches; the trace's other
+			// spans survive a drop verdict and lose their parents (issue #45).
 			if traceIDBucket(span.TraceID()) >= sampleKeepThreshold(*rule.SampleRate) {
 				p.logger.Debug("chopper_filter dropping span (trace not sampled)",
 					zap.String("rule", rule.Name),

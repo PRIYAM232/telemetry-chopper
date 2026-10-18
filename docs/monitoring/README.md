@@ -47,6 +47,7 @@ The number of series grows with the number of rules, not with traffic.
 | `invalid` | `missing_destination` | A ROUTE rule has no destination. |
 | `invalid` | `missing_throttle_rate` | A THROTTLE rule has no positive rate. |
 | `unsupported` | `action_not_supported_for_signal` | The action doesn't apply to the rule's signal, for example SAMPLE on LOGS. |
+| `unsupported` | `sample_scope_not_supported` | A SAMPLE rule's **Applies to** setting is newer than this collector version. |
 | `unsupported` | `unknown_signal` | The rule targets a signal this collector version doesn't know. |
 
 ## Collect the metrics
