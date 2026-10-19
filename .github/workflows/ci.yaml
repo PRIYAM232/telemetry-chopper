@@ -77,6 +77,10 @@ jobs:
           fi
       - name: go test -race
         run: go test -race ./...
+      # The allocation guards skip under -race, which makes sync.Pool drop
+      # items at random, so run them once more without it.
+      - name: allocation guards
+        run: go test -run 'Allocat' ./...
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}

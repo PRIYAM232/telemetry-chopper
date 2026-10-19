@@ -278,6 +278,7 @@ make ocb     # install the OpenTelemetry Collector Builder (pinned v0.156.0)
 make tidy    # resolve the processor module's dependencies
 make build   # ocb generates + compiles data-plane/dist/otelcol-chopper
 make run     # start the collector on :4317 (gRPC) / :4318 (HTTP)
+make bench   # benchmark the chopper_filter hot path (per batch: ns, allocs)
 ```
 
 **Control plane** (requires Node.js and a running PostgreSQL — `docker compose -f deploy/docker/docker-compose.yaml up -d postgres`):
