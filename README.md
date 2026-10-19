@@ -288,6 +288,7 @@ cd control-plane
 npm install
 npx prisma migrate dev && npx prisma generate
 npm run dev    # http://localhost:3000
+npm test       # Vitest against a chopper_test database on the same PostgreSQL
 ```
 
 **Version rule:** the `ocb` binary and every collector `gomod` entry in [`builder-config.yaml`](data-plane/builder-config.yaml) must come from the same collector release line (currently **v0.156.0** / API modules v1.62.0).
