@@ -93,6 +93,8 @@ collector:
   # restarts (crashes, OOM kills) but not pod deletion or rescheduling. A
   # PVC survives those too, but needs one volume per pod (a StatefulSet, or
   # replicas: 1) and usually podSecurityContext.fsGroup: 65532.
+  # Queued batches sit unencrypted on this volume until they're sent; set
+  # enabled: false to keep them in memory only (a crash then loses them).
   persistentQueue:
     enabled: true
     volume:

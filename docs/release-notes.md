@@ -22,6 +22,10 @@
 - Collectors send a `collector_id` and `interval_seconds` in their heartbeat, and the policy response includes `active_collectors`.
 - Upgrade collectors before relying on fleet-wide THROTTLE rules. Older collectors enforce the full rate each.
 
+### Documentation
+
+- The README's security section no longer says collectors keep no telemetry on disk. Since persistent exporter queues arrived on October 17, queued batches wait on the gateway's disk until they're sent. [Which telemetry does a gateway write to disk?](deploy/run-gateways-in-production.md#which-telemetry-does-a-gateway-write-to-disk) explains what's written and how to turn it off.
+
 ## October 17, 2026
 
 ### New
