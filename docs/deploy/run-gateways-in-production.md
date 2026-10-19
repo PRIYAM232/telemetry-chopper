@@ -83,8 +83,20 @@ In the Helm chart, `collector.persistentQueue` turns persistent queues on for th
 - A persistent queue holds what the gateway accepted but hasn't sent. Data inside the gateway's processors when it crashes is still lost. Senders whose requests weren't acknowledged retry them.
 - A queue's capacity is counted in requests (1,000 by default). When the queue is full, the gateway refuses new data, just like the memory limiter does.
 - Writing to disk adds latency to every export. Use fast local disks.
+- Queued telemetry is stored on the gateway's disk, unencrypted, until it's sent. See [Which telemetry does a gateway write to disk?](#which-telemetry-does-a-gateway-write-to-disk)
 
 ## Frequently asked questions
+
+### Which telemetry does a gateway write to disk?
+
+Only what you configure it to write. `chopper_filter` keeps rulesets and counters in memory and never writes to disk. Telemetry reaches a gateway's disk in two ways:
+
+- **Persistent exporter queues.** Batches waiting to be sent stay in the `file_storage` directory until they're delivered. The queue comes after `chopper_filter`, so your rules, including REDACT, have already been applied. The `file_storage` extension doesn't encrypt its files.
+- **The `file` exporter**, if a pipeline uses it to archive telemetry.
+
+The `debug` exporter at `detailed` verbosity and `log_span_details: true` also print telemetry to the collector's log, which your container runtime may keep on disk. Leave both off in production. The Helm chart does.
+
+To keep telemetry off a gateway's disk, turn persistent queues off: set `collector.persistentQueue.enabled: false` in the Helm chart, or remove `storage: file_storage` from your exporters. Queued telemetry is then held in memory only and is lost if the gateway crashes. To keep persistent queues and protect what they hold, put the queue directory on an encrypted disk or volume.
 
 ### Why isn't the batch processor included?
 

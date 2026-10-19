@@ -325,7 +325,7 @@ V1 is designed to slot behind the perimeter controls your platform team already 
 ### Inherent security benefits
 
 - **100% self-hosted** — telemetry, policies, and statistics never leave your infrastructure; data sovereignty is structural, not contractual.
-- **Zero-disk data plane** — the collector is stateless: rulesets and counters live in memory only, so a compromised or evicted collector node holds no telemetry at rest.
+- **Disk use is explicit** — rulesets and counters live in memory only, and telemetry reaches a collector's disk only through components you configure: persistent exporter queues (`file_storage`) and the `file` exporter. Queued data has already passed through your rules, so REDACT masks are applied before anything is written. The Helm chart keeps its archive exporters' queues in a per-pod `emptyDir` by default; set `collector.persistentQueue.enabled: false` to hold them in memory instead. See [Which telemetry does a gateway write to disk?](docs/deploy/run-gateways-in-production.md#which-telemetry-does-a-gateway-write-to-disk)
 - **PII stops at the edge** — `REDACT` rules mask sensitive data *before* it leaves your network, shrinking the compliance surface of every downstream vendor.
 - **CVE-gated supply chain** — CI and release pipelines scan all three container images with [Trivy](https://trivy.dev/) and fail on any `CRITICAL` vulnerability; a vulnerable image never receives a registry tag.
 
