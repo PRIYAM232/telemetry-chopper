@@ -22,7 +22,7 @@ type nopConsumer struct{}
 func (nopConsumer) Capabilities() consumer.Capabilities                { return consumer.Capabilities{} }
 func (nopConsumer) ConsumeTraces(context.Context, ptrace.Traces) error { return nil }
 
-func newTestProcessor(t *testing.T, rules []PolicyRule) *tracesProcessor {
+func newTestProcessor(t testing.TB, rules []PolicyRule) *tracesProcessor {
 	t.Helper()
 	set := processor.Settings{
 		TelemetrySettings: component.TelemetrySettings{Logger: zap.NewNop()},

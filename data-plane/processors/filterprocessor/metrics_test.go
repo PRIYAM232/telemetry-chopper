@@ -34,7 +34,7 @@ func (c *captureMetricsConsumer) ConsumeMetrics(_ context.Context, md pmetric.Me
 	return nil
 }
 
-func newTestMetricsProcessor(t *testing.T, rules []PolicyRule) *metricsProcessor {
+func newTestMetricsProcessor(t testing.TB, rules []PolicyRule) *metricsProcessor {
 	t.Helper()
 	set := processor.Settings{
 		TelemetrySettings: component.TelemetrySettings{Logger: zap.NewNop()},

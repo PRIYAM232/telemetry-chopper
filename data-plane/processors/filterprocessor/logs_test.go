@@ -30,7 +30,7 @@ func (c *captureLogsConsumer) ConsumeLogs(_ context.Context, ld plog.Logs) error
 	return nil
 }
 
-func newTestLogsProcessor(t *testing.T, rules []PolicyRule) *logsProcessor {
+func newTestLogsProcessor(t testing.TB, rules []PolicyRule) *logsProcessor {
 	t.Helper()
 	set := processor.Settings{
 		TelemetrySettings: component.TelemetrySettings{Logger: zap.NewNop()},
