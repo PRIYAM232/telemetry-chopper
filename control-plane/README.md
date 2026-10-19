@@ -19,6 +19,7 @@ against traces, logs, or metrics). The Go side of this contract lives in
 | `src/lib/auth.ts`, `src/proxy.ts` | Operator sessions; every page and Server Action calls `requireOperator()` |
 | `src/lib/audit.ts` | Audit trail writer (`AuditEvent`), rendered at `/audit` |
 | `scripts/operator.ts` | `npm run operator -- create\|reset-password <email>` for account recovery |
+| `src/**/*.test.ts`, `test/` | Vitest tests and their database harness (see [Tests](#tests)) |
 
 ## Local development
 
@@ -52,6 +53,29 @@ curl -s http://localhost:3000/api/v1/policies/f1ee7000-0000-4000-8000-0000000000
 
 Wrong or missing key → generic `401` (fleet IDs are not enumerable); malformed
 fleet ID → `400`. Key comparison is constant-time.
+
+## Tests
+
+```bash
+npx prisma generate   # once, and after schema changes
+npm test
+```
+
+Tests call route handlers and `src/lib` directly against a real PostgreSQL
+database; nothing starts a Next.js server. `test/global-setup.ts` creates the
+database if it's missing and runs `prisma migrate deploy`, so the tests see
+the schema a deployment gets, and every table is emptied before each test.
+
+The database is `TEST_DATABASE_URL`, by default
+`postgresql://chopper:chopper@localhost:5432/chopper_test` (the compose
+Postgres from step 1 above). Its name must end in `_test`: the tests refuse
+anything else rather than wipe a real database. CI runs the same suite
+against a `postgres:16-alpine` service container.
+
+Put a test next to the code it covers (`foo.ts` → `foo.test.ts`). Helpers:
+`@test/db` (`createFleet`, `createRule`), `@test/request` (`fleetRequest`,
+`fleetParams` for calling an App Router handler). Code that reads
+`next/headers` needs it mocked; `src/lib/auth.test.ts` shows a cookie jar.
 
 ## End-to-end with the data plane
 

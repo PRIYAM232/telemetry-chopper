@@ -1,6 +1,6 @@
 # Telemetry Chopper CI — validation for pull requests and pushes to main.
 #
-# Six independent jobs, one per surface:
+# Seven independent jobs, one per surface:
 #   go              — vet, gofmt, race-enabled tests and govulncheck for
 #                     every Go module: the chopper_filter engine and the
 #                     sandbox load generator
@@ -8,6 +8,8 @@
 #                     builder-config.yaml and the processor still compose,
 #                     then runs govulncheck on the generated module (what ships)
 #   control-plane   — ESLint + Prisma schema validation
+#   control-plane-test — Vitest against a real PostgreSQL service container,
+#                     migrated with `prisma migrate deploy`
 #   helm            — chart lint + full renders with the Phase 10
 #                     monitoring toggles and every cold-storage archive on,
 #                     so gated templates can't rot
@@ -139,6 +141,47 @@ jobs:
         run: npx prisma validate
       - name: Prisma client generates cleanly
         run: npx prisma generate
+
+  control-plane-test:
+    name: Control plane tests (Vitest + PostgreSQL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: control-plane
+    services:
+      # Same major version as deploy/docker/docker-compose.yaml.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chopper
+          POSTGRES_PASSWORD: chopper
+          POSTGRES_DB: chopper_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chopper -d chopper_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # test/global-setup.ts applies every migration to this database, and
+      # the tests empty its tables between cases.
+      TEST_DATABASE_URL: postgresql://chopper:chopper@localhost:5432/chopper_test
+      # prisma.config.ts reads DATABASE_URL when `prisma generate` loads it;
+      # the tests themselves use TEST_DATABASE_URL.
+      DATABASE_URL: postgresql://chopper:chopper@localhost:5432/chopper_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: control-plane/package-lock.json
+      - run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Vitest
+        run: npm test
 
   helm:
     name: Helm chart
