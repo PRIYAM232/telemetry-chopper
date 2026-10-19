@@ -21,6 +21,32 @@ Telemetry Chopper fixes this at the edge. It's a smart OpenTelemetry firewall th
 
 ---
 
+## Table of contents
+
+- [Architecture](#architecture)
+- [Core capabilities](#core-capabilities)
+  - [Routing to hot and cold backends](#routing-to-hot-and-cold-backends)
+  - [Archiving to cold storage](#archiving-to-cold-storage)
+- [Quick start — 5 minutes to value](#quick-start--5-minutes-to-value)
+  - [1. Clone and run the stack](#1-clone-and-run-the-stack)
+  - [2. Open the dashboard](#2-open-the-dashboard)
+  - [3. Send some telemetry](#3-send-some-telemetry)
+  - [4. Create a rule — no restart required](#4-create-a-rule--no-restart-required)
+  - [5. Watch the savings](#5-watch-the-savings)
+- [Deploying to Kubernetes](#deploying-to-kubernetes)
+- [Repository layout](#repository-layout)
+- [Local development](#local-development)
+  - [`chopper_filter` configuration](#chopper_filter-configuration)
+- [Security Posture & Roadmap](#security-posture--roadmap)
+  - [Designed for trusted environments (the reality)](#designed-for-trusted-environments-the-reality)
+  - [Production deployment recommendations](#production-deployment-recommendations)
+  - [Inherent security benefits](#inherent-security-benefits)
+  - [The enterprise roadmap](#the-enterprise-roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Architecture
 
 Telemetry Chopper uses a deliberately decoupled, split-brain design: a compiled, low-latency **Data Plane** that touches your telemetry, and a web-based **Control Plane** that never does.
