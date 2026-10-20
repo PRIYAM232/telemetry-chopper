@@ -13,6 +13,10 @@ receivers:
         endpoint: 0.0.0.0:4317
       http:
         endpoint: 0.0.0.0:4318
+  # Traces from Datadog tracing libraries (dd-trace-*), on the Datadog
+  # Agent's trace port. Point DD_TRACE_AGENT_URL at the collector.
+  datadog:
+    endpoint: 0.0.0.0:8126
 
 processors:
   # Sheds load before the collector runs out of memory (issue #48): above
@@ -24,6 +28,18 @@ processors:
     check_interval: 1s
     limit_percentage: 80
     spike_limit_percentage: 25
+  # Keeps spans from Datadog tracing libraries looking the same in Datadog
+  # APM. The datadog receiver turns them into OTel spans, keeping the
+  # original operation name as the span name and the resource in
+  # dd.span.Resource; without these two attributes the Agent would rename
+  # flask.request to http.server.request and replace a query's resource.
+  # Runs after chopper_filter, so dropped spans cost nothing and a REDACT
+  # rule on dd.span.Resource also covers the copy.
+  transform/datadog:
+    error_mode: ignore
+    trace_statements:
+      - set(span.attributes["operation.name"], span.name) where span.attributes["dd.span.Resource"] != nil and span.attributes["operation.name"] == nil
+      - set(span.attributes["resource.name"], span.attributes["dd.span.Resource"]) where span.attributes["dd.span.Resource"] != nil and span.attributes["resource.name"] == nil
   chopper_filter:
     log_span_details: false
     sync_endpoint: http://control-plane:3000/api/v1/policies/f1ee7000-0000-4000-8000-000000000001
@@ -81,8 +97,8 @@ service:
                 without_units: true
   pipelines:
     traces/in:
-      receivers: [otlp]
-      processors: [memory_limiter, chopper_filter]
+      receivers: [otlp, datadog]
+      processors: [memory_limiter, chopper_filter, transform/datadog]
       exporters: [routing/traces]
     logs/in:
       receivers: [otlp]

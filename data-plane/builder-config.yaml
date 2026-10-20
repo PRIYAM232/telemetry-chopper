@@ -14,6 +14,11 @@ dist:
 
 receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.156.0
+  # Datadog tracing libraries (dd-trace-*) and the Datadog Agent, so services
+  # instrumented with Datadog rather than OpenTelemetry can run through the
+  # rules too. Listens on the Agent's trace port (8126): point DD_AGENT_HOST /
+  # DD_TRACE_AGENT_URL at the collector. Alpha upstream as of v0.156.0.
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/datadogreceiver v0.156.0
 
 extensions:
   # Persistent exporter queues (issue #48): an exporter's sending_queue with
@@ -31,6 +36,13 @@ processors:
   # Our custom in-process filter engine. The version here is a placeholder —
   # the `replaces` directive below redirects resolution to the local path.
   - gomod: github.com/PRIYAM232/telemetry-chopper/data-plane/processors/filterprocessor v0.1.0
+  # OTTL edits after the rules. Used to keep Datadog-traced spans looking the
+  # same in Datadog APM: the datadog receiver turns them into OTel spans, and
+  # the Datadog Agent would otherwise rename their operations (flask.request
+  # becomes http.server.request). Copying the original operation and resource
+  # names into operation.name / resource.name, which the Agent honors,
+  # restores them. See docs/deploy/datadog-tracing-libraries.md.
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.156.0
 
 exporters:
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.156.0

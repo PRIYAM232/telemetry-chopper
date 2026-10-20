@@ -25,6 +25,11 @@ data:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
+      {{- if .Values.collector.datadogReceiver.enabled }}
+      # Datadog tracing libraries (collector.datadogReceiver).
+      datadog:
+        endpoint: 0.0.0.0:{{ .Values.collector.datadogReceiver.port }}
+      {{- end }}
 
     {{- if .Values.collector.persistentQueue.enabled }}
     extensions:
@@ -53,6 +58,16 @@ data:
         # From the fleet Secret via the container env (fleet.key or
         # fleet.existingSecret), so the key isn't stored in this ConfigMap.
         fleet_key: ${env:CHOPPER_FLEET_KEY}
+      {{- if .Values.collector.datadogReceiver.enabled }}
+      # Keeps Datadog-traced spans' operation and resource names: the Datadog
+      # Agent honors operation.name and resource.name on OTLP spans. After
+      # chopper_filter, so a REDACT rule on dd.span.Resource covers the copy.
+      transform/datadog:
+        error_mode: ignore
+        trace_statements:
+          - set(span.attributes["operation.name"], span.name) where span.attributes["dd.span.Resource"] != nil and span.attributes["operation.name"] == nil
+          - set(span.attributes["resource.name"], span.attributes["dd.span.Resource"]) where span.attributes["dd.span.Resource"] != nil and span.attributes["resource.name"] == nil
+      {{- end }}
 
     connectors:
       routing/traces:
@@ -75,6 +90,25 @@ data:
             pipelines: [metrics/cold]
 
     exporters:
+      {{- with .Values.collector.hotBackend.otlp }}
+      {{- if .endpoint }}
+      # Hot backend (collector.hotBackend.otlp).
+      otlp_grpc/hot:
+        endpoint: {{ .endpoint | quote }}
+        tls:
+          insecure: {{ .insecure }}
+        {{- with .headers }}
+        headers:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        sending_queue:
+          {{- if $.Values.collector.persistentQueue.enabled }}
+          storage: file_storage
+          {{- end }}
+          batch:
+            flush_timeout: 1s
+      {{- end }}
+      {{- end }}
       debug/hot:
         verbosity: basic
       debug/cold:
@@ -165,8 +199,13 @@ data:
                     without_units: true
       pipelines:
         traces/in:
+          {{- if .Values.collector.datadogReceiver.enabled }}
+          receivers: [otlp, datadog]
+          processors: [memory_limiter, chopper_filter, transform/datadog]
+          {{- else }}
           receivers: [otlp]
           processors: [memory_limiter, chopper_filter]
+          {{- end }}
           exporters: [routing/traces]
         logs/in:
           receivers: [otlp]
@@ -179,19 +218,19 @@ data:
 
         traces/hot:
           receivers: [routing/traces]
-          exporters: [debug/hot]
+          exporters: [{{ if .Values.collector.hotBackend.otlp.endpoint }}otlp_grpc/hot{{ else }}debug/hot{{ end }}]
         traces/cold:
           receivers: [routing/traces]
           exporters: {{ include "telemetry-chopper.coldExporters" (dict "root" $ "signal" "traces") }}
         logs/hot:
           receivers: [routing/logs]
-          exporters: [debug/hot]
+          exporters: [{{ if .Values.collector.hotBackend.otlp.endpoint }}otlp_grpc/hot{{ else }}debug/hot{{ end }}]
         logs/cold:
           receivers: [routing/logs]
           exporters: {{ include "telemetry-chopper.coldExporters" (dict "root" $ "signal" "logs") }}
         metrics/hot:
           receivers: [routing/metrics]
-          exporters: [debug/hot]
+          exporters: [{{ if .Values.collector.hotBackend.otlp.endpoint }}otlp_grpc/hot{{ else }}debug/hot{{ end }}]
         metrics/cold:
           receivers: [routing/metrics]
           exporters: {{ include "telemetry-chopper.coldExporters" (dict "root" $ "signal" "metrics") }}

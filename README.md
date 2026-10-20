@@ -57,7 +57,7 @@ Telemetry Chopper uses a deliberately decoupled, split-brain design: a compiled,
 
 ```mermaid
 flowchart LR
-    apps["📦 Your services<br/>(OTLP SDKs, agents)"]
+    apps["📦 Your services<br/>(OTLP SDKs, agents,<br/>Datadog tracing libraries)"]
 
     subgraph dp ["Telemetry Chopper Data Plane"]
         collector["otelcol-chopper<br/>chopper_filter processor<br/>+ routing connectors"]
@@ -72,7 +72,7 @@ flowchart LR
     hot["🔥 Hot backend<br/>Datadog, Grafana, Elastic…"]
     cold["🧊 Cold backend<br/>object storage, archive"]
 
-    apps -- "OTLP gRPC :4317<br/>OTLP HTTP :4318" --> collector
+    apps -- "OTLP gRPC :4317<br/>OTLP HTTP :4318<br/>Datadog traces :8126" --> collector
     collector -. "poll rules (10s)" .-> ui
     collector -. "push match/drop stats" .-> ui
     collector -- "traces/logs/metrics · hot" --> hot
@@ -229,7 +229,7 @@ Savings are priced at $0.10/GB until you enter your own rates. To match your bil
 
 See [Measure observability savings](docs/savings/README.md) for a tour of the dashboard.
 
-> **Shipping to a real backend:** the packaged dev pipeline terminates in the `debug` exporter so you can see everything working. The distribution also ships the `otlp_grpc` and `otlp_http` exporters, so any OTLP endpoint (Jaeger, Tempo, Prometheus, Grafana Cloud, vendor OTLP intakes) is a config change in your collector's `hot`/`cold` pipelines — see [`deploy/sandbox/otelcol-sandbox.yaml`](deploy/sandbox/otelcol-sandbox.yaml). For Datadog, send OTLP to a Datadog Agent with OTLP ingest on; [`deploy/datadog/`](deploy/datadog/README.md) is a ready-made test setup. For archives, it also ships the `awss3`, `azure_blob` and `file` exporters — see [Archiving to cold storage](#archiving-to-cold-storage). For vendor-specific exporters, add them to [`data-plane/builder-config.yaml`](data-plane/builder-config.yaml) and rebuild with `make build`.
+> **Shipping to a real backend:** the packaged dev pipeline terminates in the `debug` exporter so you can see everything working. The distribution also ships the `otlp_grpc` and `otlp_http` exporters, so any OTLP endpoint (Jaeger, Tempo, Prometheus, Grafana Cloud, vendor OTLP intakes) is a config change in your collector's `hot`/`cold` pipelines — see [`deploy/sandbox/otelcol-sandbox.yaml`](deploy/sandbox/otelcol-sandbox.yaml). For Datadog, send OTLP to a Datadog Agent with OTLP ingest on; [`deploy/datadog/`](deploy/datadog/README.md) is a ready-made test setup. Services instrumented with Datadog's tracing libraries can send their traces through the rules too: see [Filter traces from Datadog tracing libraries](docs/deploy/datadog-tracing-libraries.md). For archives, it also ships the `awss3`, `azure_blob` and `file` exporters — see [Archiving to cold storage](#archiving-to-cold-storage). For vendor-specific exporters, add them to [`data-plane/builder-config.yaml`](data-plane/builder-config.yaml) and rebuild with `make build`.
 >
 > **Live REDACT/THROTTLE demo:** [`deploy/sandbox/`](deploy/sandbox/README.md) runs the full stack against real Jaeger and Prometheus backends with a noisy, PII-laden synthetic workload.
 

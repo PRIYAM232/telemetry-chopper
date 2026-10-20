@@ -86,6 +86,16 @@ collector:
     limitPercentage: 80
     spikeLimitPercentage: 25
 
+  # Traces from Datadog tracing libraries (dd-trace-*). Adds the datadog
+  # receiver on the Agent's trace port, so services instrumented with Datadog
+  # rather than OpenTelemetry run through the rules too: point their
+  # DD_TRACE_AGENT_URL (or DD_AGENT_HOST) at the collector Service. A
+  # transform step keeps their operation and resource names as Datadog
+  # showed them. See docs/deploy/datadog-tracing-libraries.md.
+  datadogReceiver:
+    enabled: false
+    port: 8126
+
   # Persistent exporter queues (issue #48). The archive exporters (s3,
   # azureBlob) keep their sending queue in the file_storage extension, so
   # batches waiting for an upload survive a collector crash or restart.
@@ -126,6 +136,20 @@ collector:
   #    valueFrom: { secretKeyRef: { name: chopper-archive-aws, key: access-key-id } }
   extraEnvFrom: []
   #  - secretRef: { name: chopper-archive-azure }
+
+  # Where the traces/hot, logs/hot and metrics/hot pipelines send what the
+  # rules keep: an OTLP gRPC endpoint, such as a Datadog Agent with OTLP
+  # ingest (datadog-agent.datadog.svc:4317), Grafana Alloy or a vendor's
+  # OTLP intake. With no endpoint, the hot pipelines end in the debug
+  # exporter, as before. Uses the persistent queue when that's enabled.
+  hotBackend:
+    otlp:
+      endpoint: ""
+      # Plaintext gRPC, e.g. to an in-cluster Agent. Set false for TLS.
+      insecure: true
+      # Extra request headers, e.g. a vendor API key from extraEnv:
+      #   { dd-api-key: "${env:DD_API_KEY}" }
+      headers: {}
 
   # Archive exporters for the traces/cold, logs/cold and metrics/cold
   # pipelines, i.e. everything a ROUTE rule sends to "cold-storage" (see the

@@ -1,6 +1,6 @@
 # Telemetry Chopper documentation
 
-Telemetry Chopper is an open-source control plane for OpenTelemetry. It lets you drop, sample, redact, route and rate-limit traces, logs and metrics at the edge, before they reach your observability vendor, and it shows what those policies save you in dollars.
+Telemetry Chopper is an open-source control plane for OpenTelemetry. It lets you drop, sample, redact, route and rate-limit traces, logs and metrics at the edge, including traces from Datadog's tracing libraries, before they reach your observability vendor, and it shows what those policies save you in dollars.
 
 A Telemetry Chopper deployment has two parts:
 
@@ -33,6 +33,7 @@ Telemetry Chopper measures the bytes and events your rules keep away from your v
 - [Sign in, manage operators and review the audit log](deploy/sign-in-and-operators.md): the first sign-in, adding teammates, and who changed what.
 - [Create fleets and rotate fleet keys](deploy/manage-fleets.md): add a fleet for each group of collectors, and replace a key without downtime.
 - [Run gateways in production](deploy/run-gateways-in-production.md): limit memory use and keep queued telemetry across crashes and restarts.
+- [Filter traces from Datadog tracing libraries](deploy/datadog-tracing-libraries.md): apply your rules to services instrumented with Datadog's tracing libraries instead of OpenTelemetry, and keep their names in Datadog APM.
 
 ## Monitor Telemetry Chopper
 
