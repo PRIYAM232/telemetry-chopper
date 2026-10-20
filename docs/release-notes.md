@@ -8,6 +8,7 @@
 - **Fleet key rotation.** Replace a fleet's key from the **Fleets** page. Choose whether the old key stops working immediately or after 1 hour, 24 hours or 7 days, and see how many online collectors still use it. **Revoke now** ends the grace period early. See [Rotate a fleet key](deploy/manage-fleets.md#rotate-a-fleet-key).
 - **Fleet picker.** With more than one fleet, pick which one the **Dashboard** and **Pricing** pages show from the menu next to the fleet name.
 - The audit log records fleets created, keys rotated and previous keys revoked.
+- **Datadog test harness.** Run Telemetry Chopper in front of your Datadog account: the collector sends OTLP to a Datadog Agent, a script sends labelled logs, traces and metrics, and a table lists what Datadog should show for each DROP, REDACT, EXCLUDE_INDEX and ROUTE rule. See [Datadog test harness](../deploy/datadog/README.md).
 
 ### Changed
 

@@ -1,0 +1,52 @@
+# Datadog test harness: Telemetry Chopper in front of a real Datadog account.
+#
+#   send.py ─OTLP─► otelcol-chopper ─OTLP gRPC─► datadog-agent ─► Datadog
+#                        │  (rules from the control plane)
+#                        └─ ROUTE cold-storage → debug/cold (stays local)
+#
+# Overlay on deploy/docker/docker-compose.yaml with its own project name,
+# container names and ports, so it runs beside the quick start. Use
+# run.sh rather than calling compose directly.
+services:
+  postgres:
+    container_name: chopper-dd-postgres
+    ports: !override
+      - "127.0.0.1:55460:5432"
+  control-plane-migrate:
+    container_name: chopper-dd-control-plane-migrate
+  control-plane:
+    container_name: chopper-dd-control-plane
+    ports: !override
+      - "127.0.0.1:3022:3000"
+  otelcol-chopper:
+    container_name: chopper-dd-collector
+    ports: !override
+      - "127.0.0.1:14427:4317"
+      - "127.0.0.1:14428:4318"
+      - "127.0.0.1:18898:8888"
+    volumes: !override
+      - ./otelcol-datadog.yaml:/etc/otelcol/config.yaml:ro
+    depends_on:
+      control-plane:
+        condition: service_healthy
+      datadog-agent:
+        condition: service_started
+
+  # The Datadog Agent with OTLP ingest on: the supported way to send OTLP to
+  # Datadog without building the contrib datadog exporter into the collector.
+  datadog-agent:
+    image: gcr.io/datadoghq/agent:7.84.4
+    container_name: chopper-dd-agent
+    environment:
+      DD_API_KEY: ${DD_API_KEY:?set DD_API_KEY in deploy/datadog/.env}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+      DD_HOSTNAME: chopper-dd-test
+      DD_ENV: chopper-test
+      DD_OTLP_CONFIG_RECEIVER_PROTOCOLS_GRPC_ENDPOINT: 0.0.0.0:4317
+      DD_OTLP_CONFIG_LOGS_ENABLED: "true"
+      DD_LOGS_ENABLED: "true"
+      DD_APM_ENABLED: "true"
+      # Only what Chopper forwards: no container, process or host checks.
+      DD_ENABLE_METADATA_COLLECTION: "false"
+      DD_PROCESS_AGENT_ENABLED: "false"
+      DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "false"
