@@ -61,8 +61,8 @@ export async function savePricing(
     ["tracesPricePerGb", "trace ingest", "per GB", "0.10"],
     ["logsPricePerGb", "log ingest", "per GB", "0.10"],
     ["metricsPricePerGb", "metric ingest", "per GB", "0.10"],
-    ["tracesIndexPricePerMillion", "indexed span", "per million events", "1.70"],
-    ["logsIndexPricePerMillion", "indexed log event", "per million events", "1.70"],
+    ["tracesIndexPricePerMillion", "indexed span", "per million events", "2.04"],
+    ["logsIndexPricePerMillion", "indexed log event", "per million events", "2.04"],
   ] as const) {
     const raw = formString(formData, key).replace(/^\$/, "");
     if (!PRICE_RE.test(raw)) {

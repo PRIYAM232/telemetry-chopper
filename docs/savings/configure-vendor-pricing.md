@@ -16,7 +16,7 @@ Find your negotiated prices in your vendor contract or billing console. Use the 
 1. On the dashboard, click **Pricing** in the header, or go to `/settings/pricing`.
 2. In **Observability vendor**, choose **Datadog**, **Splunk**, **New Relic** or **Custom**. For **Custom**, also enter a **Vendor name**, for example `Grafana Cloud`.
 3. Under **Ingest price, USD per GB**, enter prices for **Logs**, **Traces (spans)** and **Metrics**, with up to four decimal places (for example `0.10`). Enter `0` for a signal your vendor doesn't bill per GB, such as metrics billed per time series.
-4. Under **Indexing price, USD per million events**, enter prices for **Indexed log events** and **Indexed spans** (for example `1.70`). Leave them at `0` if your vendor doesn't charge separately for indexing.
+4. Under **Indexing price, USD per million events**, enter prices for **Indexed log events** and **Indexed spans** (for example `2.04`). Leave them at `0` if your vendor doesn't charge separately for indexing.
 5. Click **Save rate card**.
 
 The dashboard's savings now use your prices, and the savings card names your vendor.

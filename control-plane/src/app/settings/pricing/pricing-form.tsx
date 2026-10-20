@@ -131,7 +131,7 @@ export function PricingForm({
                   required
                   inputMode="decimal"
                   pattern="\d{1,6}(\.\d{1,4})?"
-                  title="USD per million indexed events, up to 4 decimal places (e.g. 1.70)"
+                  title="USD per million indexed events, up to 4 decimal places (e.g. 2.04)"
                   defaultValue={String(card[f.key])}
                   className={`${inputClass} pl-7 tabular-nums`}
                 />
