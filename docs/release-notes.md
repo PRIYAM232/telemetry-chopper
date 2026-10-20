@@ -4,6 +4,9 @@
 
 ### New
 
+- **Traces from Datadog tracing libraries.** `otelcol-chopper` now includes a Datadog receiver. Services instrumented with Datadog's tracing libraries can send traces to the collector on port 8126, and your rules apply to them like OpenTelemetry spans. A transform step keeps their operation and resource names in Datadog APM. In the Helm chart, set `collector.datadogReceiver.enabled`. See [Filter traces from Datadog tracing libraries](deploy/datadog-tracing-libraries.md).
+- **Helm hot backend.** `collector.hotBackend.otlp.endpoint` sends what your rules keep to an OTLP gRPC endpoint, such as a Datadog Agent, instead of the `debug` exporter.
+- The Datadog test harness sends traces with Datadog's Python tracing library: `run.sh send-ddtrace`.
 - **Fleets page.** Create a fleet for each group of collectors that should run different rules, such as each environment or region, from the new **Fleets** page. Each fleet gets its own key, shown once when it's created. See [Create fleets and rotate fleet keys](deploy/manage-fleets.md).
 - **Fleet key rotation.** Replace a fleet's key from the **Fleets** page. Choose whether the old key stops working immediately or after 1 hour, 24 hours or 7 days, and see how many online collectors still use it. **Revoke now** ends the grace period early. See [Rotate a fleet key](deploy/manage-fleets.md#rotate-a-fleet-key).
 - **Fleet picker.** With more than one fleet, pick which one the **Dashboard** and **Pricing** pages show from the menu next to the fleet name.

@@ -87,6 +87,10 @@ spec:
               containerPort: 4317
             - name: otlp-http
               containerPort: 4318
+            {{- if .Values.collector.datadogReceiver.enabled }}
+            - name: datadog-apm
+              containerPort: {{ .Values.collector.datadogReceiver.port }}
+            {{- end }}
             # Collector self-telemetry (Prometheus text format, /metrics) —
             # the service.telemetry.metrics reader in the collector config.
             - name: metrics
@@ -176,6 +180,12 @@ spec:
     - name: otlp-http
       port: 4318
       targetPort: otlp-http
+    {{- if .Values.collector.datadogReceiver.enabled }}
+    # Datadog tracing libraries (collector.datadogReceiver).
+    - name: datadog-apm
+      port: {{ .Values.collector.datadogReceiver.port }}
+      targetPort: datadog-apm
+    {{- end }}
     # Named port the ServiceMonitor's endpoint references; Prometheus
     # resolves it through this Service's Endpoints to scrape every collector
     # pod individually (it never scrapes through the ClusterIP itself).

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Datadog test harness driver. Usage: deploy/datadog/run.sh up|rules|send|check [run-id]|down
+# Datadog test harness driver. Usage: deploy/datadog/run.sh up|rules|send|send-ddtrace|check [run-id]|down
 # Reads DD_API_KEY / DD_SITE (and optionally DD_APP_KEY for `check`) from
 # deploy/datadog/.env or the environment.
 set -euo pipefail
@@ -29,11 +29,20 @@ case "${1:-}" in
   rules)
     psql_cp < "$HERE/rules.sql"
     echo "waiting for the collector to load the rules..."
-    until docker logs chopper-dd-collector 2>&1 | grep -q '"rules_total": 8'; do sleep 1; done
-    docker logs chopper-dd-collector 2>&1 | grep '"rules_total": 8' | tail -1
+    until docker logs chopper-dd-collector 2>&1 | grep -q '"rules_total": 10'; do sleep 1; done
+    docker logs chopper-dd-collector 2>&1 | grep '"rules_total": 10' | tail -1
     ;;
   send)
     python3 "$HERE/send.py" "${2:-}"
+    ;;
+  send-ddtrace)
+    # Same idea with Datadog's own tracing library: a container on the stack's
+    # network sends ddtrace spans to the collector's Datadog receiver (:8126).
+    docker build -q -t chopper-dd-ddtrace "$HERE/ddtrace" >/dev/null
+    docker run --rm --network chopper-dd_default \
+      -e DD_TRACE_AGENT_URL=http://otelcol-chopper:8126 -e DD_ENV=chopper-test \
+      -e DD_REMOTE_CONFIGURATION_ENABLED=false -e DD_INSTRUMENTATION_TELEMETRY_ENABLED=false \
+      chopper-dd-ddtrace "${2:-}"
     ;;
   check)
     echo "== Collector (in: received, out: sent to Datadog Agent)"
@@ -54,7 +63,7 @@ case "${1:-}" in
     printf '  %-14s not counted by the Agent; upload errors %s\n' spans \
       "$(docker logs chopper-dd-agent 2>&1 | grep '| TRACE |' | grep -c -E '\| (ERROR|WARN) \|.*pkg/trace/writer' || true)"
     if [ -z "${DD_APP_KEY:-}" ] || [ -z "${2:-}" ]; then
-      echo "  To count spans per case, set DD_APP_KEY and pass a run id, or search APM for service:chopper-dd-test"
+      echo "  To count spans per case, set DD_APP_KEY and pass a run id, or search APM for service:chopper-dd-test or service:chopper-dd-tracer"
     fi
     if [ -n "${2:-}" ] && [ -n "${DD_APP_KEY:-}" ]; then
       echo "== Datadog API (run $2, last 30 min; indexing can lag 1-2 min)"
@@ -73,6 +82,7 @@ case "${1:-}" in
     ;;
   down)
     compose down -v --rmi local
+    docker image rm chopper-dd-ddtrace >/dev/null 2>&1 || true
     ;;
   *) sed -n 2,4p "$0"; exit 1 ;;
 esac

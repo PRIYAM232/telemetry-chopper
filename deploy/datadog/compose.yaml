@@ -24,6 +24,7 @@ services:
       - "127.0.0.1:14427:4317"
       - "127.0.0.1:14428:4318"
       - "127.0.0.1:18898:8888"
+      - "127.0.0.1:18126:8126" # Datadog tracing libraries
     volumes: !override
       - ./otelcol-datadog.yaml:/etc/otelcol/config.yaml:ro
     depends_on:

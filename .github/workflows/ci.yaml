@@ -103,6 +103,30 @@ jobs:
       - name: Assemble otelcol-chopper
         working-directory: data-plane
         run: builder --config builder-config.yaml
+      # Every collector config the repo ships must load in this build, so a
+      # config naming a component missing from builder-config.yaml, or a
+      # broken OTTL statement, fails here instead of at deploy time. The Helm
+      # chart's config is rendered with the optional Datadog receiver and hot
+      # backend on, and persistent queues off (their directory only exists in
+      # the pod).
+      - uses: azure/setup-helm@v4
+      - name: Shipped collector configs load
+        env:
+          CHOPPER_FLEET_KEY: ci
+          POD_NAME: ci
+        run: |
+          helm template chopper deploy/helm/telemetry-chopper \
+            --set collector.datadogReceiver.enabled=true \
+            --set collector.hotBackend.otlp.endpoint=datadog-agent:4317 \
+            --set collector.persistentQueue.enabled=false \
+            --show-only templates/configmap-collector.yaml \
+            | sed -n '/otelcol-k8s.yaml: |/,$p' | tail -n +2 | sed 's/^    //' \
+            > "$RUNNER_TEMP/otelcol-k8s.yaml"
+          for f in data-plane/config/otelcol-dev.yaml deploy/docker/otelcol-docker.yaml \
+                   deploy/datadog/otelcol-datadog.yaml "$RUNNER_TEMP/otelcol-k8s.yaml"; do
+            echo "== $f"
+            data-plane/dist/otelcol-chopper validate --config "$f"
+          done
       # Source mode against the go.mod ocb generated in dist/, so the
       # builder-config.yaml `replaces:` security pins are in effect and only
       # vulnerabilities on a real call path fail the build. Not -mode=binary:
@@ -224,6 +248,18 @@ jobs:
           fi
           helm template chopper "$chart" --set fleet.key="$canary" \
             --show-only templates/secret-fleet.yaml | grep -q "$canary"
+      - name: Datadog receiver and hot backend render only when set
+        run: |
+          chart=deploy/helm/telemetry-chopper
+          on=$(helm template chopper "$chart" --set collector.datadogReceiver.enabled=true \
+                 --set collector.hotBackend.otlp.endpoint=datadog-agent:4317)
+          grep -q 'receivers: \[otlp, datadog\]' <<<"$on"
+          grep -q 'transform/datadog' <<<"$on"
+          grep -q 'name: datadog-apm' <<<"$on"
+          test "$(grep -c 'exporters: \[otlp_grpc/hot\]' <<<"$on")" -eq 3
+          if helm template chopper "$chart" | grep -q -E 'datadog-apm|transform/datadog|otlp_grpc/hot'; then
+            echo "the Datadog receiver or hot backend rendered without being set"; exit 1
+          fi
       - name: Render with an existing fleet key Secret
         run: >
           helm template chopper deploy/helm/telemetry-chopper
