@@ -32,6 +32,8 @@ Every field is optional. A missing field counts as `0`. Counts must be non-negat
 | `rules` | Per-rule counts for this interval (see below). Include only rules with activity. |
 | `collector_id` | A stable ID for the sending collector process, up to 128 characters. Collectors send their `service.instance.id`. The control plane counts collectors with a recent heartbeat to split fleet-wide THROTTLE limits. Optional. |
 | `interval_seconds` | The collector's stats interval, from 1 to 3600. A collector counts as active until about three intervals pass without a heartbeat. Optional; defaults to `10`. |
+| `metrics_dropped_series` | How many distinct metric series the collector's rules have dropped so far in the UTC hour given by `metrics_series_hour`. A running count for the hour, not an interval delta: the control plane keeps the largest value per collector and hour. Send it with `metrics_series_hour`. Optional. |
+| `metrics_series_hour` | The Unix time, in seconds, of the start of the UTC hour that `metrics_dropped_series` counts. Must be a whole hour. Optional. |
 
 Each entry in `rules`:
 

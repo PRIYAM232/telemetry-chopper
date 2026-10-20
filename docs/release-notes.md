@@ -8,6 +8,7 @@
 - **Fleet key rotation.** Replace a fleet's key from the **Fleets** page. Choose whether the old key stops working immediately or after 1 hour, 24 hours or 7 days, and see how many online collectors still use it. **Revoke now** ends the grace period early. See [Rotate a fleet key](deploy/manage-fleets.md#rotate-a-fleet-key).
 - **Fleet picker.** With more than one fleet, pick which one the **Dashboard** and **Pricing** pages show from the menu next to the fleet name.
 - The audit log records fleets created, keys rotated and previous keys revoked.
+- **Metric series pricing.** For vendors that bill custom metrics by series, such as Datadog, set a **Metric series price** per 100 series per month on the **Pricing** page. Collectors now count the distinct metric series their rules drop each hour, and the dashboard prices them as series-hours instead of bytes. See [Configure vendor pricing](savings/configure-vendor-pricing.md).
 - **Datadog test harness.** Run Telemetry Chopper in front of your Datadog account: the collector sends OTLP to a Datadog Agent, a script sends labelled logs, traces and metrics, and a table lists what Datadog should show for each DROP, REDACT, EXCLUDE_INDEX and ROUTE rule. See [Datadog test harness](../deploy/datadog/README.md).
 
 ### Changed
@@ -16,6 +17,7 @@
 - The seed step in the Docker Compose, sandbox and pilot stacks and the Helm chart only creates `local-dev-fleet` when it doesn't exist. It used to write the fleet's published key and sample rules back on every start or upgrade, undoing a rotated key, a paused rule or an edited one.
 - With no fleet, the dashboard and pricing pages link to the **Fleets** page instead of asking you to run the seed.
 - The Helm chart keeps the fleet key in a `<release>-fleet` Secret instead of the collector ConfigMap, and restarts the collectors when `fleet.key` changes. The new `fleet.existingSecret` value uses a Secret you manage instead. Upgrades need no value changes. See [Create a fleet](deploy/manage-fleets.md#create-a-fleet).
+- Upgrade collectors to get metric series savings. Older collectors don't report dropped series, so their series savings stay at $0. Existing rate cards get a series price of $0, so their savings don't change.
 - Pricing examples in the docs and on the **Pricing** page use Datadog's current monthly-plan list price for indexing, $2.04 per million events, instead of $1.70.
 
 ## October 18, 2026

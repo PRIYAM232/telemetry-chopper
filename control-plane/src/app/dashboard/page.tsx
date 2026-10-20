@@ -21,7 +21,7 @@ import { requireOperator } from "@/lib/auth";
 import { formatBytes } from "@/lib/format";
 import { computeEgressSavings, getEgressConfig } from "@/lib/egress";
 import { formatUSD } from "@/lib/format";
-import { computeSavings, getRateCard, rateCardLabel } from "@/lib/pricing";
+import { computeSavings, getDroppedSeriesHours, getRateCard, rateCardLabel } from "@/lib/pricing";
 import { getFleetChoices } from "@/lib/fleet-selection";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
@@ -124,6 +124,7 @@ export default async function DashboardPage({
     ruleStats,
     perRuleReporting,
     activeCollectors,
+    droppedSeriesHours,
   ] = await Promise.all([
     prisma.fleetMetric.aggregate({
       where: { fleetId: fleet.id, ...inWindow },
@@ -165,6 +166,7 @@ export default async function DashboardPage({
     // Collectors that identify themselves in heartbeats (issue #46); 0 when
     // every collector predates that, which the header falls back from.
     countActiveCollectors(fleet.id),
+    getDroppedSeriesHours(fleet.id, since),
   ]);
 
   const tracesReceived = totals._sum.tracesReceived ?? 0;
@@ -198,6 +200,7 @@ export default async function DashboardPage({
         traces: totals._sum.tracesUnindexed ?? 0,
         logs: totals._sum.logsUnindexed ?? 0,
       },
+      droppedSeriesHours,
     },
     rateCard,
   );
@@ -306,7 +309,8 @@ export default async function DashboardPage({
               {formatUSD(totalSavingsUSD)}
             </p>
             <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
-              Vendor ingest + indexing at {rateCardLabel(rateCard)}{" "}
+              Vendor ingest + indexing{rateCard.metricsPricePer100Series > 0 && " + metric series"} at{" "}
+              {rateCardLabel(rateCard)}{" "}
               {rateCard.vendor === null ? `$${rateCard.logsPricePerGb.toFixed(2)}/GB` : "rate card"}
               {egress.enabled && ` + cloud egress at $${egressConfig.pricePerGb}/GB`}, {windowLabel} ·{" "}
               <Link

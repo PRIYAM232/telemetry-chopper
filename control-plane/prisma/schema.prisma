@@ -106,6 +106,7 @@ model CollectorFleet {
 
   rules   PolicyRule[]
   metrics FleetMetric[]
+  metricSeriesHours MetricSeriesHour[]
   ruleMetrics RuleMetric[]
   collectors  CollectorInstance[]
   pricing    PricingConfig?
@@ -248,6 +249,12 @@ model PricingConfig {
   tracesIndexPricePerMillion Decimal @default(0) @db.Decimal(10, 4)
   logsIndexPricePerMillion   Decimal @default(0) @db.Decimal(10, 4)
 
+  // Series-based metrics pricing: USD per 100 metric series per month, for
+  // vendors that bill custom metrics by series rather than bytes (Datadog).
+  // Priced on the series-hours in MetricSeriesHour. 0 = the vendor doesn't
+  // bill metrics by series.
+  metricsPricePer100Series Decimal @default(0) @db.Decimal(10, 4)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -326,6 +333,23 @@ model RuleMetric {
 
   // The dashboard sums a fleet's rows over a time window, grouped by rule.
   @@index([fleetId, createdAt])
+}
+
+// How many distinct metric series one collector's rules dropped in one UTC
+// hour. Collectors report a running count for the current hour with every
+// heartbeat; the row keeps the largest. Summed over a window, droppedSeries
+// is series-hours: what series-billing vendors charge for (their monthly
+// count is the average over the month's hours).
+model MetricSeriesHour {
+  fleetId       String         @db.Uuid
+  fleet         CollectorFleet @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  // The collector's collector_id; "" for a collector that sent none.
+  collectorId   String
+  hour          DateTime
+  droppedSeries Int
+
+  @@id([fleetId, collectorId, hour])
+  @@index([fleetId, hour])
 }
 
 // One row per collector process that has heartbeated for a fleet (issue #46),

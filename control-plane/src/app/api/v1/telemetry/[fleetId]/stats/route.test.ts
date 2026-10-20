@@ -209,4 +209,49 @@ describe("POST /api/v1/telemetry/:fleetId/stats", () => {
     expect(response.status).toBe(401);
     expect(await prisma.fleetMetric.count()).toBe(0);
   });
+  describe("dropped metric series", () => {
+    const hour = Date.UTC(2026, 9, 20, 9) / 1000;
+
+    it("keeps the largest count per collector and hour", async () => {
+      const fleet = await createFleet();
+      const beat = (collector: string, h: number, n: number) =>
+        report(fleet, { collector_id: collector, metrics_series_hour: h, metrics_dropped_series: n });
+
+      expect((await beat("c1", hour, 40)).status).toBe(204);
+      await beat("c1", hour, 55);
+      // A late, smaller report can't lower the hour's count.
+      await beat("c1", hour, 50);
+      await beat("c2", hour, 7);
+      await beat("c1", hour + 3600, 3);
+
+      const rows = await prisma.metricSeriesHour.findMany({
+        where: { fleetId: fleet.id },
+        orderBy: [{ hour: "asc" }, { collectorId: "asc" }],
+      });
+      expect(rows.map((r) => [r.collectorId, r.hour.toISOString(), r.droppedSeries])).toEqual([
+        ["c1", "2026-10-20T09:00:00.000Z", 55],
+        ["c2", "2026-10-20T09:00:00.000Z", 7],
+        ["c1", "2026-10-20T10:00:00.000Z", 3],
+      ]);
+      // Each heartbeat still stores its counters.
+      expect(await prisma.fleetMetric.count({ where: { fleetId: fleet.id } })).toBe(5);
+    });
+
+    it("stores nothing for a count of 0 or a heartbeat without the keys", async () => {
+      const fleet = await createFleet();
+      await report(fleet, { collector_id: "c1", metrics_series_hour: hour, metrics_dropped_series: 0 });
+      await report(fleet, { collector_id: "c1" });
+      expect(await prisma.metricSeriesHour.count({ where: { fleetId: fleet.id } })).toBe(0);
+    });
+
+    it.each([
+      ["an hour that isn't on the hour", { metrics_series_hour: hour + 60, metrics_dropped_series: 3 }],
+      ["a count without its hour", { metrics_dropped_series: 3 }],
+      ["a negative count", { metrics_series_hour: hour, metrics_dropped_series: -1 }],
+    ])("rejects %s", async (_label, body) => {
+      const fleet = await createFleet();
+      expect((await report(fleet, body)).status).toBe(400);
+      expect(await prisma.fleetMetric.count({ where: { fleetId: fleet.id } })).toBe(0);
+    });
+  });
 });

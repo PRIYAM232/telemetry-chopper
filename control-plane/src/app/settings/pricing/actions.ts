@@ -63,6 +63,7 @@ export async function savePricing(
     ["metricsPricePerGb", "metric ingest", "per GB", "0.10"],
     ["tracesIndexPricePerMillion", "indexed span", "per million events", "2.04"],
     ["logsIndexPricePerMillion", "indexed log event", "per million events", "2.04"],
+    ["metricsPricePer100Series", "metric series", "per 100 series per month", "5.00"],
   ] as const) {
     const raw = formString(formData, key).replace(/^\$/, "");
     if (!PRICE_RE.test(raw)) {
@@ -81,6 +82,7 @@ export async function savePricing(
     metricsPricePerGb: prices.metricsPricePerGb,
     tracesIndexPricePerMillion: prices.tracesIndexPricePerMillion,
     logsIndexPricePerMillion: prices.logsIndexPricePerMillion,
+    metricsPricePer100Series: prices.metricsPricePer100Series,
   };
   await saveRateCard(fleetId, rateCard);
   await recordAudit({ operator, action: AuditAction.RATE_CARD_UPDATED, fleetId, details: rateCard });
