@@ -22,6 +22,7 @@ import { formatBytes } from "@/lib/format";
 import { computeEgressSavings, getEgressConfig } from "@/lib/egress";
 import { formatUSD } from "@/lib/format";
 import { computeSavings, getRateCard, rateCardLabel } from "@/lib/pricing";
+import { getFleetChoices } from "@/lib/fleet-selection";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
 import {
@@ -40,6 +41,7 @@ import { RangePicker } from "./range-picker";
 import { SavingsBreakdown } from "./savings-breakdown";
 import { CreateRuleForm } from "./create-rule-form";
 import { SubmitButton } from "./pending";
+import { FleetPicker } from "@/app/settings/fleets/fleet-picker";
 
 // This page reads live operational data on every request; never prerender it.
 export const dynamic = "force-dynamic";
@@ -71,11 +73,14 @@ export default async function DashboardPage({
 }) {
   const operator = await requireOperator();
   const range = parseTimeRange((await searchParams).range);
-  const fleet = await prisma.collectorFleet.findFirst({
-    orderBy: { createdAt: "asc" },
-    // Soft-deleted rules (issue #12) are hidden while their undo window runs.
-    include: { rules: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } } },
-  });
+  const { fleets, selected } = await getFleetChoices();
+  const fleet = selected
+    ? await prisma.collectorFleet.findUnique({
+        where: { id: selected.id },
+        // Soft-deleted rules (issue #12) are hidden while their undo window runs.
+        include: { rules: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } } },
+      })
+    : null;
 
   if (!fleet) {
     return (
@@ -87,10 +92,10 @@ export default async function DashboardPage({
               No collector fleet found
             </h1>
             <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-              Seed the development fleet first:{" "}
-              <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-900">
-                npx prisma db seed
-              </code>
+              <Link href="/settings/fleets" className="font-medium underline underline-offset-2">
+                Create a fleet
+              </Link>{" "}
+              and give its key to your collectors.
             </p>
           </div>
         </main>
@@ -226,7 +231,12 @@ export default async function DashboardPage({
               </span>
             </h1>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-              Fleet <span className="font-medium text-zinc-900 dark:text-zinc-200">{fleet.name}</span>
+              Fleet{" "}
+              {fleets.length > 1 ? (
+                <FleetPicker fleets={fleets} selectedId={fleet.id} />
+              ) : (
+                <span className="font-medium text-zinc-900 dark:text-zinc-200">{fleet.name}</span>
+              )}
               <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
               <code className="font-mono text-xs">{fleet.id}</code>
             </p>

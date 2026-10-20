@@ -4,11 +4,13 @@
 // dropped by the per-GB prices saved here (src/lib/pricing.ts).
 
 import type { Metadata } from "next";
+import Link from "next/link";
 import { TopBar } from "@/app/top-bar";
 import { requireOperator } from "@/lib/auth";
 import { getEgressConfig } from "@/lib/egress";
+import { FleetPicker } from "@/app/settings/fleets/fleet-picker";
+import { getFleetChoices } from "@/lib/fleet-selection";
 import { getCommitment } from "@/lib/overage";
-import { prisma } from "@/lib/prisma";
 import { DEFAULT_PRICE_PER_GB_USD, VENDOR_LABELS, getRateCard } from "@/lib/pricing";
 import { CommitmentForm } from "./commitment-form";
 import { EgressForm } from "./egress-form";
@@ -23,12 +25,8 @@ export const metadata: Metadata = {
 
 export default async function PricingSettingsPage() {
   const operator = await requireOperator();
-  // Same fleet the dashboard shows: the control plane manages one fleet per
-  // deployment today.
-  const fleet = await prisma.collectorFleet.findFirst({
-    orderBy: { createdAt: "asc" },
-    select: { id: true, name: true },
-  });
+  // Same fleet the dashboard shows (src/lib/fleet-selection.ts).
+  const { fleets, selected: fleet } = await getFleetChoices();
 
   return (
     <>
@@ -40,17 +38,21 @@ export default async function PricingSettingsPage() {
 
         {!fleet ? (
           <p className="mt-4 text-sm text-zinc-600 dark:text-zinc-400">
-            No collector fleet found. Seed the development fleet first with{" "}
-            <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-900">
-              npx prisma db seed
-            </code>
-            .
+            No collector fleet yet.{" "}
+            <Link href="/settings/fleets" className="font-medium underline underline-offset-2">
+              Create a fleet
+            </Link>{" "}
+            first.
           </p>
         ) : (
           <>
             <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
               Savings for fleet{" "}
-              <span className="font-medium text-zinc-900 dark:text-zinc-200">{fleet.name}</span>{" "}
+              {fleets.length > 1 ? (
+                <FleetPicker fleets={fleets} selectedId={fleet.id} />
+              ) : (
+                <span className="font-medium text-zinc-900 dark:text-zinc-200">{fleet.name}</span>
+              )}{" "}
               are priced as the GB each signal&apos;s rules dropped × your per-GB rate.
             </p>
             <PricingSection fleetId={fleet.id} />

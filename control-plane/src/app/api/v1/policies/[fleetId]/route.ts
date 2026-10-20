@@ -1,7 +1,7 @@
 // GET /api/v1/policies/:fleetId
 //
 // The polling endpoint for otelcol-chopper data planes. Auth is a fleet-scoped
-// bearer token: `Authorization: Bearer <CollectorFleet.apiKey>` — see
+// bearer token: `Authorization: Bearer <fleet key>` — see
 // src/lib/fleet-auth.ts for the comparison/enumeration guarantees.
 //
 // Conditional polling: every response carries a strong ETag (SHA-256 of the

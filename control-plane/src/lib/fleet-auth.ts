@@ -2,23 +2,28 @@
 // plane calls (policy pull, telemetry stats push).
 //
 // Security notes:
-//   - Key comparison is constant-time (timingSafeEqual) to avoid leaking key
-//     prefixes through response timing.
+//   - The presented key is hashed and compared against the stored SHA-256
+//     (src/lib/fleet-keys.ts) in constant time (timingSafeEqual), so response
+//     timing leaks nothing about the key.
 //   - Unknown fleet and wrong key both return the same 401 so the endpoints
 //     cannot be used to enumerate fleet IDs.
+//   - A key rotated out with a grace period is accepted until the period
+//     ends, and the result says so, so heartbeats can record which collectors
+//     still need the new key.
 
 import { timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { hashFleetKey } from "@/lib/fleet-keys";
 import { prisma } from "@/lib/prisma";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function constantTimeEqual(a: string, b: string): boolean {
+// Both sides are hex SHA-256 digests, so always the same length; the check
+// only keeps timingSafeEqual from throwing on a malformed stored value.
+function digestsEqual(a: string, b: string): boolean {
   const bufA = Buffer.from(a, "utf8");
   const bufB = Buffer.from(b, "utf8");
-  // timingSafeEqual throws on length mismatch; a length check leaks only the
-  // key length, which is not secret.
   return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
 }
 
@@ -30,12 +35,12 @@ function unauthorized(): NextResponse {
 }
 
 export type FleetAuthResult =
-  | { ok: true; fleetId: string }
+  | { ok: true; fleetId: string; usedPreviousKey: boolean }
   | { ok: false; response: NextResponse };
 
 /**
  * Validates the fleetId path segment and the `Authorization: Bearer` header
- * against CollectorFleet.apiKey. On failure, `response` is ready to return
+ * against the fleet's key (or its previous key, during a rotation's grace period). On failure, `response` is ready to return
  * as-is (400 for a malformed fleetId, 401 for anything credential-shaped).
  */
 export async function authenticateFleet(
@@ -60,11 +65,23 @@ export async function authenticateFleet(
 
   const fleet = await prisma.collectorFleet.findUnique({
     where: { id: fleetId },
-    select: { id: true, apiKey: true },
+    select: { id: true, apiKeyHash: true, previousApiKeyHash: true, previousApiKeyExpiresAt: true },
   });
-  if (!fleet || !constantTimeEqual(bearer, fleet.apiKey)) {
+  if (!fleet) {
     return { ok: false, response: unauthorized() };
   }
 
-  return { ok: true, fleetId: fleet.id };
+  const presented = hashFleetKey(bearer);
+  if (digestsEqual(presented, fleet.apiKeyHash)) {
+    return { ok: true, fleetId: fleet.id, usedPreviousKey: false };
+  }
+  if (
+    fleet.previousApiKeyHash &&
+    fleet.previousApiKeyExpiresAt &&
+    fleet.previousApiKeyExpiresAt.getTime() > Date.now() &&
+    digestsEqual(presented, fleet.previousApiKeyHash)
+  ) {
+    return { ok: true, fleetId: fleet.id, usedPreviousKey: true };
+  }
+  return { ok: false, response: unauthorized() };
 }

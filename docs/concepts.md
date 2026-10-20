@@ -4,7 +4,7 @@ This page defines the terms used throughout the Telemetry Chopper documentation.
 
 ## Fleet
 
-A **fleet** is a group of collectors that share one set of rules and report to the same dashboard. Each fleet has an ID and an API key, which its collectors use to authenticate. Rate cards, commitments and egress settings are configured per fleet.
+A **fleet** is a group of collectors that share one set of rules and report to the same dashboard. Each fleet has an ID and a key, which its collectors use to authenticate. Rate cards, commitments and egress settings are configured per fleet. See [Create fleets and rotate fleet keys](deploy/manage-fleets.md).
 
 ## Collector
 

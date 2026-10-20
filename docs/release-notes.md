@@ -1,5 +1,20 @@
 # Release notes
 
+## October 20, 2026
+
+### New
+
+- **Fleets page.** Create a fleet for each group of collectors that should run different rules, such as each environment or region, from the new **Fleets** page. Each fleet gets its own key, shown once when it's created. See [Create fleets and rotate fleet keys](deploy/manage-fleets.md).
+- **Fleet key rotation.** Replace a fleet's key from the **Fleets** page. Choose whether the old key stops working immediately or after 1 hour, 24 hours or 7 days, and see how many online collectors still use it. **Revoke now** ends the grace period early. See [Rotate a fleet key](deploy/manage-fleets.md#rotate-a-fleet-key).
+- **Fleet picker.** With more than one fleet, pick which one the **Dashboard** and **Pricing** pages show from the menu next to the fleet name.
+- The audit log records fleets created, keys rotated and previous keys revoked.
+
+### Changed
+
+- The control plane stores fleet keys as SHA-256 hashes instead of the keys themselves, so it can't show a key again after the first time. Upgrading converts existing keys; collectors need no changes.
+- The seed step in the Docker Compose, sandbox and pilot stacks and the Helm chart only creates `local-dev-fleet` when it doesn't exist. It used to write the fleet's published key and sample rules back on every start or upgrade, undoing a rotated key, a paused rule or an edited one.
+- With no fleet, the dashboard and pricing pages link to the **Fleets** page instead of asking you to run the seed.
+
 ## October 18, 2026
 
 ### New

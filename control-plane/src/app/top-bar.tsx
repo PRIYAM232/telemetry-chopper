@@ -10,6 +10,7 @@ import { SubmitButton } from "./dashboard/pending";
 const SECTIONS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/settings/pricing", label: "Pricing" },
+  { href: "/settings/fleets", label: "Fleets" },
   { href: "/settings/operators", label: "Operators" },
   { href: "/audit", label: "Audit log" },
 ] as const;

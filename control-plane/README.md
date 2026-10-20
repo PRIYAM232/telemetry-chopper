@@ -13,9 +13,10 @@ against traces, logs, or metrics). The Go side of this contract lives in
 | Path | Purpose |
 | --- | --- |
 | `prisma/schema.prisma` | `CollectorFleet` + `PolicyRule` models and enums |
-| `prisma/seed.ts` | Deterministic dev fleet + 3 sample rules (idempotent upserts) |
+| `prisma/seed.ts` | Deterministic dev fleet + 3 sample rules (created only if the fleet doesn't exist) |
 | `src/lib/prisma.ts` | Prisma Client singleton (hot-reload safe, pg driver adapter) |
 | `src/app/api/v1/policies/[fleetId]/route.ts` | Bearer-authenticated policy endpoint |
+| `src/lib/fleet-keys.ts`, `src/lib/fleets.ts` | Fleet keys (stored as SHA-256), creating fleets, rotation with a grace period |
 | `src/lib/auth.ts`, `src/proxy.ts` | Operator sessions; every page and Server Action calls `requireOperator()` |
 | `src/lib/audit.ts` | Audit trail writer (`AuditEvent`), rendered at `/audit` |
 | `scripts/operator.ts` | `npm run operator -- create\|reset-password <email>` for account recovery |
@@ -43,8 +44,10 @@ time someone signs in with them, so put both in `control-plane/.env` next to
 [Sign in, manage operators and review the audit log](../docs/deploy/sign-in-and-operators.md).
 
 The seed provisions fleet `f1ee7000-0000-4000-8000-000000000001` with API key
-`chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712` (**local dev only — rotate for
-any real deployment**). Smoke-test:
+`chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712` (**local dev only**: create
+your own fleets and rotate keys on the **Fleets** page, see
+[Create fleets and rotate fleet keys](../docs/deploy/manage-fleets.md)).
+Smoke-test:
 
 ```bash
 curl -s http://localhost:3000/api/v1/policies/f1ee7000-0000-4000-8000-000000000001 \
