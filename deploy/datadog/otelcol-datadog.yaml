@@ -1,0 +1,113 @@
+# Collector config for the Datadog test harness: deploy/docker's
+# otelcol-docker.yaml with the hot exporters pointed at the Datadog Agent
+# (OTLP gRPC, datadog-agent:4317) and self-metrics on :8888. ROUTE
+# cold-storage traffic still goes to debug/cold and never reaches Datadog.
+# Fleet ID and key are the deterministic LOCAL DEV values provisioned by the
+# control-plane-migrate one-shot (prisma db seed) — rotate for any real
+# deployment.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Sheds load before the collector runs out of memory (issue #48): above
+  # the soft limit (limit - spike, here 55% of the memory available to the
+  # process, i.e. the container limit when there is one) the OTLP receiver
+  # answers with a retryable error, so senders back off instead of the
+  # collector being OOM-killed. Must be first in every ingest pipeline.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  chopper_filter:
+    log_span_details: false
+    sync_endpoint: http://control-plane:3000/api/v1/policies/f1ee7000-0000-4000-8000-000000000001
+    sync_interval: 10s
+    stats_endpoint: http://control-plane:3000/api/v1/telemetry/f1ee7000-0000-4000-8000-000000000001/stats
+    stats_interval: 10s
+    fleet_key: chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
+
+connectors:
+  routing/traces:
+    default_pipelines: [traces/hot]
+    table:
+      - context: resource
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
+        pipelines: [traces/cold]
+  routing/logs:
+    default_pipelines: [logs/hot]
+    table:
+      - context: resource
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
+        pipelines: [logs/cold]
+  routing/metrics:
+    default_pipelines: [metrics/hot]
+    table:
+      - context: resource
+        condition: attributes["chopper.routing.destination"] == "cold-storage"
+        pipelines: [metrics/cold]
+
+exporters:
+  # Everything not routed to cold storage goes to Datadog via the Agent.
+  otlp_grpc/datadog:
+    endpoint: datadog-agent:4317
+    tls:
+      insecure: true
+  debug/cold:
+    verbosity: basic
+
+service:
+  telemetry:
+    logs:
+      # chopper_filter emits its batch observations at debug level.
+      level: debug
+    # Self-metrics on :8888 (host 127.0.0.1:18898): run.sh check reads the
+    # receiver and exporter counters from here.
+    metrics:
+      level: normal
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+                without_scope_info: true
+                without_type_suffix: true
+                without_units: true
+  pipelines:
+    traces/in:
+      receivers: [otlp]
+      processors: [memory_limiter, chopper_filter]
+      exporters: [routing/traces]
+    logs/in:
+      receivers: [otlp]
+      processors: [memory_limiter, chopper_filter]
+      exporters: [routing/logs]
+    metrics/in:
+      receivers: [otlp]
+      processors: [memory_limiter, chopper_filter]
+      exporters: [routing/metrics]
+
+    traces/hot:
+      receivers: [routing/traces]
+      exporters: [otlp_grpc/datadog]
+    traces/cold:
+      receivers: [routing/traces]
+      exporters: [debug/cold]
+    logs/hot:
+      receivers: [routing/logs]
+      exporters: [otlp_grpc/datadog]
+    logs/cold:
+      receivers: [routing/logs]
+      exporters: [debug/cold]
+    metrics/hot:
+      receivers: [routing/metrics]
+      exporters: [otlp_grpc/datadog]
+    metrics/cold:
+      receivers: [routing/metrics]
+      exporters: [debug/cold]

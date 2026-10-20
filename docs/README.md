@@ -41,6 +41,7 @@ Telemetry Chopper measures the bytes and events your rules keep away from your v
 ## Rehearse a pilot
 
 - [Pilot rehearsal environment](../deploy/pilot/README.md): run Telemetry Chopper as a gateway tier in front of the OpenTelemetry Demo, with Grafana, Tempo, Loki and Prometheus, and follow a test plan.
+- [Datadog test harness](../deploy/datadog/README.md): run Telemetry Chopper in front of your Datadog account through the Datadog Agent, send labelled test telemetry, and check in Datadog what each rule dropped, masked or kept out of the index.
 
 ## Reference
 
