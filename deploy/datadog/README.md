@@ -47,7 +47,16 @@ Datadog queries:
 
 To see EXCLUDE_INDEX save indexing cost, add an exclusion filter `@chopper.index:false` to your log index (Logs → Configuration → Indexes). The /healthz logs then still appear in Live Tail and count toward ingest, but they aren't indexed.
 
-`check` prints the collector's in and out counts and the Agent's status. With `DD_APP_KEY` set and a run id, it also counts logs and spans per case through the Datadog API. Indexing takes a minute or two.
+`check` prints the collector's in and out counts, then the Agent's totals since it started: whether Datadog accepted the API key, logs received and sent to Datadog with retries, metric points received, and trace upload errors. With `DD_APP_KEY` set and a run id, it also counts logs and spans per case through the Datadog API. Indexing takes a minute or two.
+
+The Agent doesn't count spans that arrive over OTLP: its APM status shows "No traces received" and zero payloads even while it uploads them. `check` reports trace upload errors instead; count the spans in Datadog (with `DD_APP_KEY`, or in APM under `service:chopper-dd-test`).
+
+## Reference run (real Datadog account, 2026-10-20)
+
+One `send` on a new account (site `datadoghq.com`), Agent 7.84.4:
+
+- Collector: spans 60 received → 20 sent, logs 100 → 60, metric points 2 → 1, 0 send failures.
+- Agent: API key valid; 60 logs received and 60 sent to Datadog, 0 retries; 1 metric point received; 0 trace upload errors. With `DD_LOG_LEVEL=debug`, the trace-agent logged one `Flushed traces to the API` per batch.
 
 ## Reference run (placeholder API key, 2026-10-20)
 
