@@ -111,7 +111,8 @@ export function PricingForm({
         </div>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           Use the rate from your contract. A signal your vendor doesn&apos;t bill
-          per GB (metrics are often billed per series) can be set to 0.
+          per GB can be set to 0. If your vendor bills metrics per series, as
+          Datadog does, set metrics to 0 here and use the series price below.
         </p>
       </fieldset>
 
@@ -144,6 +145,36 @@ export function PricingForm({
           pricing). Dropped records save both ingest and indexing; records an
           EXCLUDE_INDEX rule keeps out of the index save indexing only. Leave 0 if your
           vendor doesn&apos;t bill indexing separately.
+        </p>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3">
+        <legend className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          Metric series price, USD per 100 series per month
+        </legend>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Metric series">
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-zinc-400">
+                $
+              </span>
+              <input
+                name="metricsPricePer100Series"
+                required
+                inputMode="decimal"
+                pattern="\d{1,6}(\.\d{1,4})?"
+                title="USD per 100 metric series per month, up to 4 decimal places (e.g. 5.00)"
+                defaultValue={String(card.metricsPricePer100Series)}
+                className={`${inputClass} pl-7 tabular-nums`}
+              />
+            </div>
+          </Field>
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          For vendors that bill custom metrics by series (a metric name plus one
+          combination of tag values) instead of by volume, such as Datadog. A series
+          your rules drop entirely saves its share of this price for every hour it
+          stays dropped. Leave 0 if your vendor doesn&apos;t bill metrics by series.
         </p>
       </fieldset>
 

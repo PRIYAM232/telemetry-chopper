@@ -57,6 +57,10 @@ type ruleEngine struct {
 	// random ID when the resource lacks one.
 	collectorID string
 
+	// droppedSeries counts the distinct metric series the rules dropped in
+	// the current UTC hour (series.go), reported with every heartbeat.
+	droppedSeries *seriesTracker
+
 	rulesMu       sync.RWMutex
 	rules         []compiledRule // last known-good ruleset, evaluation-ready; nil until first successful sync
 	lastRulesHash [sha256.Size]byte
@@ -124,6 +128,7 @@ func newRuleEngine(logger *zap.Logger, cfg *Config) *ruleEngine {
 		httpClient: &http.Client{
 			Timeout: syncRequestTimeout,
 		},
+		droppedSeries: newSeriesTracker(),
 	}
 }
 
@@ -478,6 +483,14 @@ type statsPayload struct {
 	// pass without a heartbeat (issue #46).
 	CollectorID     string  `json:"collector_id,omitempty"`
 	IntervalSeconds float64 `json:"interval_seconds,omitempty"`
+
+	// MetricsDroppedSeries is how many distinct metric series the rules have
+	// dropped so far in the UTC hour starting at MetricsSeriesHour (Unix
+	// seconds). Not an interval delta: it's a running count for the hour,
+	// so the control plane keeps the largest per collector and hour, and a
+	// failed report needs no carry-over. Omitted when nothing was dropped.
+	MetricsDroppedSeries int64 `json:"metrics_dropped_series,omitempty"`
+	MetricsSeriesHour    int64 `json:"metrics_series_hour,omitempty"`
 }
 
 // runStatsLoop reports immediately on startup — an all-zero report is the
@@ -533,6 +546,9 @@ func (e *ruleEngine) reportStatsOnce(ctx context.Context) {
 		LogsUnindexed:   e.logsUnindexed.Swap(0),
 
 		Rules: e.ruleStats.drain(),
+	}
+	if hour, n := e.droppedSeries.snapshot(); n > 0 {
+		stats.MetricsSeriesHour, stats.MetricsDroppedSeries = hour, n
 	}
 
 	if err := e.postStats(ctx, stats); err != nil {

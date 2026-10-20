@@ -133,6 +133,7 @@ func (p *metricsProcessor) applyRules(rules []compiledRule, md pmetric.Metrics) 
 				size := int64(sizer.MetricSize(metric))
 				droppedBytes += size
 				dropBy.stats.countDrop(size)
+				p.engine.droppedSeries.observeDropped(metric, resourceHost(resAttrs))
 				return true
 			})
 			return sm.Metrics().Len() == 0

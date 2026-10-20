@@ -46,9 +46,13 @@ export type IndexPrices = {
   logsIndexPricePerMillion: number;
 };
 
+// USD per 100 metric series per month, for vendors that bill custom metrics
+// by series (Datadog). 0 = the vendor doesn't.
+export type SeriesPrice = { metricsPricePer100Series: number };
+
 // A plain, serializable view of PricingConfig (Prisma Decimals can't cross
 // into client components). vendor is null while the fleet runs on defaults.
-export type RateCard = SignalPrices & IndexPrices & {
+export type RateCard = SignalPrices & IndexPrices & SeriesPrice & {
   vendor: ObservabilityVendor | null;
   customVendorName: string | null;
 };
@@ -62,6 +66,7 @@ export const DEFAULT_RATE_CARD: RateCard = {
   // Not every vendor bills indexing separately; don't assume one does.
   tracesIndexPricePerMillion: 0,
   logsIndexPricePerMillion: 0,
+  metricsPricePer100Series: 0,
 };
 
 export function rateCardLabel(card: RateCard): string {
@@ -83,6 +88,7 @@ export async function getRateCard(fleetId: string): Promise<RateCard> {
     metricsPricePerGb: row.metricsPricePerGb.toNumber(),
     tracesIndexPricePerMillion: row.tracesIndexPricePerMillion.toNumber(),
     logsIndexPricePerMillion: row.logsIndexPricePerMillion.toNumber(),
+    metricsPricePer100Series: row.metricsPricePer100Series.toNumber(),
   };
 }
 
@@ -101,6 +107,7 @@ export async function saveRateCard(
     metricsPricePerGb: card.metricsPricePerGb,
     tracesIndexPricePerMillion: card.tracesIndexPricePerMillion,
     logsIndexPricePerMillion: card.logsIndexPricePerMillion,
+    metricsPricePer100Series: card.metricsPricePer100Series,
   };
   await prisma.pricingConfig.upsert({
     where: { fleetId },
@@ -119,6 +126,9 @@ export type SavingsInput = {
   droppedEvents: IndexedEvents;
   // Records forwarded but opted out of indexing by EXCLUDE_INDEX.
   unindexedEvents: IndexedEvents;
+  // Distinct metric series dropped, summed over the hours of the window
+  // (getDroppedSeriesHours). Optional: 0 when absent.
+  droppedSeriesHours?: number;
 };
 
 export type Savings = {
@@ -133,12 +143,23 @@ export type Savings = {
     droppedEvents: number;
     unindexedEvents: number;
   };
+  // Metric series kept off a series-billed vendor: series-hours priced at
+  // the monthly per-100-series price.
+  series: { seriesHours: number; total: number };
   totalUSD: number;
 };
 
 const EVENTS_PER_MILLION = 1_000_000;
 
-export function computeSavings(input: SavingsInput, card: SignalPrices & IndexPrices): Savings {
+// Series-billing vendors count a month's custom metrics as the average
+// number of distinct series per hour, so one series present for every hour
+// of a month bills as 1. Datadog's month is 730 hours (8,760 / 12).
+export const HOURS_PER_BILLING_MONTH = 730;
+
+export function computeSavings(
+  input: SavingsInput,
+  card: SignalPrices & IndexPrices & Partial<SeriesPrice>,
+): Savings {
   const { droppedBytes: b, droppedEvents: d, unindexedEvents: u } = input;
   const ingest = {
     traces: (b.traces / BYTES_PER_GB) * card.tracesPricePerGb,
@@ -155,11 +176,28 @@ export function computeSavings(input: SavingsInput, card: SignalPrices & IndexPr
     unindexedEvents: u.traces + u.logs,
   };
   indexing.total = indexing.traces + indexing.logs;
+  const seriesHours = input.droppedSeriesHours ?? 0;
+  const series = {
+    seriesHours,
+    total: (seriesHours / HOURS_PER_BILLING_MONTH / 100) * (card.metricsPricePer100Series ?? 0),
+  };
   return {
     droppedBytes: b.traces + b.logs + b.metrics,
     droppedBytesBySignal: b,
     ingest,
     indexing,
-    totalUSD: ingest.total + indexing.total,
+    series,
+    totalUSD: ingest.total + indexing.total + series.total,
   };
+}
+
+// Series-hours of dropped metric series since `since` (all time when null):
+// for each hour, the distinct series every collector dropped, summed.
+// Hours are counted whole when they start inside the window.
+export async function getDroppedSeriesHours(fleetId: string, since: Date | null): Promise<number> {
+  const result = await prisma.metricSeriesHour.aggregate({
+    where: { fleetId, ...(since ? { hour: { gte: since } } : {}) },
+    _sum: { droppedSeries: true },
+  });
+  return result._sum.droppedSeries ?? 0;
 }

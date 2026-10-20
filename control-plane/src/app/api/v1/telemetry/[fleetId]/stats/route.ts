@@ -19,6 +19,7 @@
 //     "metrics_forwarded_bytes": int64,
 //     "traces_unindexed": int64, "logs_unindexed": int64,
 //     "collector_id": string, "interval_seconds": number,
+//     "metrics_dropped_series": int64, "metrics_series_hour": int64,
 //     "rules": [ { "rule_id": uuid, "matched": int64, "dropped": int64,
 //                  "dropped_bytes": int64, "unindexed": int64,
 //                  "evaluated": int64 }, ... ]
@@ -120,6 +121,31 @@ function parseCollector(payload: Record<string, unknown>): {
   return { instanceId: id, intervalSeconds };
 }
 
+// The distinct metric series the collector's rules dropped so far in one
+// UTC hour (metrics_series_hour, Unix seconds at the start of the hour). A
+// running count, not a delta, so it's stored as the hour's maximum. Both
+// keys are absent from collectors that dropped no metrics this hour, or that
+// predate series counting. Returns undefined when absent, null when
+// malformed.
+function parseDroppedSeries(
+  payload: Record<string, unknown>,
+): { hour: Date; droppedSeries: number } | null | undefined {
+  const count = payload.metrics_dropped_series;
+  const hour = payload.metrics_series_hour;
+  if (count === undefined && hour === undefined) return undefined;
+  const droppedSeries = asCount(count);
+  if (
+    droppedSeries === null ||
+    typeof hour !== "number" ||
+    !Number.isInteger(hour) ||
+    hour <= 0 ||
+    hour % 3600 !== 0
+  ) {
+    return null;
+  }
+  return { hour: new Date(hour * 1000), droppedSeries };
+}
+
 // Parses the optional "rules" array. Returns null when it is present but
 // malformed (a client bug, so a 400 like any other bad count).
 function parseRuleEntries(value: unknown): RuleEntry[] | null {
@@ -209,6 +235,14 @@ export async function POST(
     );
   }
 
+  const series = parseDroppedSeries(payload);
+  if (series === null) {
+    return NextResponse.json(
+      { error: "metrics_dropped_series must be a non-negative integer and metrics_series_hour the Unix time of the start of an hour" },
+      { status: 400 },
+    );
+  }
+
   const ruleEntries = parseRuleEntries(payload.rules);
   if (ruleEntries === null) {
     return NextResponse.json(
@@ -258,9 +292,19 @@ export async function POST(
   if (ruleRows.length > 0) {
     writes.push(prisma.ruleMetric.createMany({ data: ruleRows }));
   }
+  const collector = parseCollector(payload);
+  if (series && series.droppedSeries > 0) {
+    const collectorId = collector?.instanceId ?? "";
+    // The column is TIMESTAMP (UTC, no zone): cast the ISO string so the
+    // database session's TimeZone can't shift it, as overage.ts does.
+    writes.push(prisma.$executeRaw`
+      INSERT INTO "MetricSeriesHour" ("fleetId", "collectorId", "hour", "droppedSeries")
+      VALUES (${auth.fleetId}::uuid, ${collectorId}, ${series.hour.toISOString()}::timestamp, ${series.droppedSeries})
+      ON CONFLICT ("fleetId", "collectorId", "hour")
+      DO UPDATE SET "droppedSeries" = GREATEST("MetricSeriesHour"."droppedSeries", EXCLUDED."droppedSeries")`);
+  }
   // Mark the sender active for fleet-wide THROTTLE rules, and forget
   // collectors long gone so the table stays the size of the fleet.
-  const collector = parseCollector(payload);
   if (collector) {
     const now = new Date();
     writes.push(

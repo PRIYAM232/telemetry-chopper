@@ -12,6 +12,7 @@ Collectors measure these values and report them in every heartbeat:
 | Forwarded bytes | The OTLP protobuf size of each batch passed downstream, including resource and scope information, as your exporter sends it. |
 | Dropped events | The number of spans and log records removed. |
 | Unindexed events | The number of spans and log records forwarded with `chopper.index = false` by an EXCLUDE_INDEX rule. A record that's marked and later dropped counts as dropped. |
+| Dropped series | The number of distinct metric series (metric name, datapoint attributes and the resource's `host.name`) a collector's rules dropped in each UTC hour. Summed over a window's hours and collectors, this gives **series-hours**. |
 
 Your settings provide:
 
@@ -19,6 +20,7 @@ Your settings provide:
 |---|---|
 | Ingest price per GB, per signal | *r* |
 | Indexing price per million events, for spans and logs | *i* |
+| Metric series price per 100 series per month | *s* |
 | Egress price per GB | *e* |
 | Wire compression ratio | *k* |
 | Committed volume, in GB per month | *C* |
@@ -35,7 +37,15 @@ ingest savings   = dropped GB × r
 indexing savings = (dropped events + unindexed events) ÷ 1,000,000 × i     (spans and logs only)
 ```
 
-**Estimated savings** on the dashboard is the sum of ingest and indexing savings across all signals.
+For metrics, when the rate card has a series price:
+
+```
+series savings = series-hours ÷ 730 ÷ 100 × s
+```
+
+730 is the number of hours in a billing month (8,760 ÷ 12): vendors that bill by series count a month's series as the average over its hours.
+
+**Estimated savings** on the dashboard is the sum of ingest, indexing and series savings across all signals.
 
 ## Egress savings
 
