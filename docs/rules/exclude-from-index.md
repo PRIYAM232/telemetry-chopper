@@ -1,6 +1,6 @@
 # Keep events out of your vendor's index
 
-Many observability vendors bill twice for the same data: once to **ingest** it (per GB) and again to **index** it for search (per million events). Indexing is often the larger charge. At around 200 bytes per event, indexing an event at $1.70 per million costs about 85 times as much as ingesting it at $0.10 per GB.
+Many observability vendors bill twice for the same data: once to **ingest** it (per GB) and again to **index** it for search (per million events). Indexing is often the larger charge. For example, Datadog's monthly-plan list prices are $0.10 per GB to ingest logs and $2.04 per million log events to index them. At around 200 bytes per event, indexing an event costs about 100 times as much as ingesting it.
 
 The **EXCLUDE_INDEX** action lets you keep sending data your vendor needs for live tail, metrics generated from logs or archives, without paying to make it searchable. Matching spans and log records are forwarded as usual, with the record attribute `chopper.index` set to `false`. A matching exclusion filter in your vendor then keeps them out of the index.
 
