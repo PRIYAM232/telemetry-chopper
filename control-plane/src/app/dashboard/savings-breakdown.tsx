@@ -14,6 +14,7 @@ import Link from "next/link";
 import { formatBytes, formatUSD } from "@/lib/format";
 import { computeEgressSavings, type EgressConfig, type EgressSavings } from "@/lib/egress";
 import { HOURS_PER_BILLING_MONTH, type RateCard, type Savings } from "@/lib/pricing";
+import { hasSpanAllowance } from "@/lib/span-allowance";
 
 const integerFmt = new Intl.NumberFormat("en-US");
 const seriesFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
@@ -185,6 +186,15 @@ export function SavingsBreakdown({
           </div>
         ))}
       </dl>
+
+      {hasSpanAllowance(rateCard) && (
+        <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
+          Span savings count only usage above your monthly allowance of{" "}
+          {seriesFmt.format(rateCard.tracesIncludedGbPerMonth)} GB ingested and{" "}
+          {seriesFmt.format(rateCard.tracesIncludedIndexedMillionsPerMonth)} million indexed spans, worked out for each
+          billing month and shared across it by when spans were dropped.
+        </p>
+      )}
 
       {!egress.enabled && (
         <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">

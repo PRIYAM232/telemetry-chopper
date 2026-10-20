@@ -74,6 +74,19 @@ export async function savePricing(
     prices[key] = Number(raw);
   }
 
+  // Monthly span allowance: NUMERIC(14, 3), in GB and millions of spans.
+  const allowance: Record<string, number> = {};
+  for (const [key, label, example] of [
+    ["tracesIncludedGbPerMonth", "included ingested span GB per month", "150"],
+    ["tracesIncludedIndexedMillionsPerMonth", "included indexed spans, in millions per month", "1"],
+  ] as const) {
+    const raw = formString(formData, key) || "0";
+    if (!/^\d{1,11}(\.\d{1,3})?$/.test(raw)) {
+      return fail(`${label} must be a number with at most 3 decimal places, e.g. ${example}`);
+    }
+    allowance[key] = Number(raw);
+  }
+
   const rateCard = {
     vendor: vendorValue,
     customVendorName: customVendorName || null,
@@ -83,6 +96,8 @@ export async function savePricing(
     tracesIndexPricePerMillion: prices.tracesIndexPricePerMillion,
     logsIndexPricePerMillion: prices.logsIndexPricePerMillion,
     metricsPricePer100Series: prices.metricsPricePer100Series,
+    tracesIncludedGbPerMonth: allowance.tracesIncludedGbPerMonth,
+    tracesIncludedIndexedMillionsPerMonth: allowance.tracesIncludedIndexedMillionsPerMonth,
   };
   await saveRateCard(fleetId, rateCard);
   await recordAudit({ operator, action: AuditAction.RATE_CARD_UPDATED, fleetId, details: rateCard });

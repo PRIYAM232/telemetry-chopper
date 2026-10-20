@@ -6,6 +6,8 @@ A **rate card** tells Telemetry Chopper what your observability vendor charges y
 - **Indexing prices**, in USD per million events, for indexed log events and indexed spans.
 - A **metric series price**, in USD per 100 series per month, for vendors that bill custom metrics by series instead of by volume, such as Datadog.
 
+It can also hold a monthly **span allowance**: span volume your plan includes before it bills ingest and indexing.
+
 Until you save a rate card, every signal is priced at **$0.10 per GB**, and indexing and metric series at $0.
 
 ## Before you begin
@@ -19,7 +21,8 @@ Find your negotiated prices in your vendor contract or billing console. Use the 
 3. Under **Ingest price, USD per GB**, enter prices for **Logs**, **Traces (spans)** and **Metrics**, with up to four decimal places (for example `0.10`). Enter `0` for a signal your vendor doesn't bill per GB, such as metrics billed per time series.
 4. Under **Indexing price, USD per million events**, enter prices for **Indexed log events** and **Indexed spans** (for example `2.04`). Leave them at `0` if your vendor doesn't charge separately for indexing.
 5. Under **Metric series price, USD per 100 series per month**, enter your price if your vendor bills custom metrics by series (for example `5.00`, Datadog's monthly-plan list price). Set the metrics ingest price to `0` in that case, so metrics aren't priced twice. Leave it at `0` if your vendor bills metrics by volume.
-6. Click **Save rate card**.
+6. Under **Included span allowance per month**, enter the ingested span GB and indexed spans, in millions, that your plan includes each month. Datadog includes 150 GB and 1 million indexed spans per APM host (30 GB and 195,000 per Fargate task), pooled across your account, so with 10 APM hosts enter `1500` and `10`. Leave both at `0` if your plan has no allowance.
+7. Click **Save rate card**.
 
 The dashboard's savings now use your prices, and the savings card names your vendor.
 
@@ -30,12 +33,19 @@ The dashboard's savings now use your prices, and the savings card names your ven
 | Ingest | GB dropped × ingest price, for each signal |
 | Indexing | (events dropped + events kept out of the index) ÷ 1,000,000 × indexing price, for spans and logs |
 | Metric series | series-hours dropped ÷ 730 ÷ 100 × series price |
+| Spans, with an allowance | for each billing month, what the vendor bills above the allowance without Telemetry Chopper minus what it bills with it |
 
 For example, with logs at $0.10 per GB and $2.50 per million indexed events, dropping 20 million log records totalling 50 GB saves $5.00 in ingest and $50.00 in indexing.
 
 Series-billing vendors count a month's custom metrics as the average number of distinct series per hour. A **series-hour** is one series dropped for one hour, and a month has 730 hours. So with Datadog's $5.00 per 100 series, rules that drop 1,000 series for a whole month save $50.00, and rules that drop them for one day save about $1.64.
 
 For the complete formulas, see [How savings are calculated](calculations.md).
+
+### Span allowances
+
+With a span allowance, dropping spans only saves money once a month's usage is above the allowance. Each billing month is worked out separately, and its savings are shared across the month by when spans were dropped. Billing months start on the day set under **Committed volume**, or on the 1st.
+
+For example, with a 1,500 GB allowance at $0.10 per GB, a month with 1,200 GB forwarded and 600 GB dropped would have used 1,800 GB without Telemetry Chopper. Only 300 GB of that was above the allowance, so the month saves $30, not $60.
 
 ## Considerations
 
@@ -47,6 +57,8 @@ For the complete formulas, see [How savings are calculated](calculations.md).
 - A series only counts when a rule drops its datapoints. If the same series also reaches your vendor another way, for example from a collector without the rule, your vendor still bills it.
 - Datadog bills a histogram or distribution as several custom metrics (count, sum, percentiles and so on). Telemetry Chopper counts each as one series, so savings for those err low.
 - Each collector tracks up to 100,000 dropped series per hour. Beyond that, the count stops growing for the rest of the hour.
+- A span allowance is shared by all spans that reach your vendor, including spans that don't pass through Telemetry Chopper. Telemetry Chopper only sees its own traffic, so it may think more of the allowance is left than really is. Span savings then err low. To correct for it, enter only the share of the allowance your Telemetry Chopper traffic uses.
+- In a month that's still running, span savings use the usage so far. They can grow as the month goes on and usage passes the allowance.
 
 ## Frequently asked questions
 

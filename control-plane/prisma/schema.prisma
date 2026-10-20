@@ -255,6 +255,13 @@ model PricingConfig {
   // bill metrics by series.
   metricsPricePer100Series Decimal @default(0) @db.Decimal(10, 4)
 
+  // Span volume the vendor includes every month before billing ingest and
+  // indexing (Datadog: 150 GB ingested and 1M indexed spans per APM host,
+  // pooled across the account). Dropped spans only save money above it.
+  // 0 = no allowance: every span is billed.
+  tracesIncludedGbPerMonth              Decimal @default(0) @db.Decimal(14, 3)
+  tracesIncludedIndexedMillionsPerMonth Decimal @default(0) @db.Decimal(14, 3)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
