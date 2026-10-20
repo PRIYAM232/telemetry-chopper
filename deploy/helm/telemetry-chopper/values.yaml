@@ -229,10 +229,21 @@ metrics:
     annotations: {}
 
 fleet:
-  # Deterministic LOCAL DEV fleet provisioned by the migrator's seed step —
-  # rotate both values for any real deployment.
+  # Deterministic LOCAL DEV fleet provisioned by the migrator's seed step.
+  # Its key is public: for any real deployment, create a fleet (or rotate
+  # this one's key) on the console's Fleets page and set id and key to it.
   id: f1ee7000-0000-4000-8000-000000000001
+  # Stored in the <release>-fleet Secret and read by the collector as
+  # ${env:CHOPPER_FLEET_KEY}, so it never lands in the collector ConfigMap.
+  # Changing it rolls the collector pods.
   key: chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
+  # Name of an existing Secret holding the key under CHOPPER_FLEET_KEY, e.g.
+  #   kubectl -n chopper create secret generic chopper-fleet \
+  #     --from-literal=CHOPPER_FLEET_KEY=<key>
+  # When set, fleet.key is ignored and no Secret is created. Collectors read
+  # the key at startup: after changing the Secret, run
+  #   kubectl -n chopper rollout restart deploy/<release>-collector
+  existingSecret: ""
   syncInterval: 10s
   statsInterval: 10s
 

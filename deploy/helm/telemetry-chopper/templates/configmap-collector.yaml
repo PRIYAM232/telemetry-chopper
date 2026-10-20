@@ -50,7 +50,9 @@ data:
         sync_interval: {{ .Values.fleet.syncInterval }}
         stats_endpoint: {{ include "telemetry-chopper.controlPlaneUrl" . }}/api/v1/telemetry/{{ .Values.fleet.id }}/stats
         stats_interval: {{ .Values.fleet.statsInterval }}
-        fleet_key: {{ .Values.fleet.key }}
+        # From the fleet Secret via the container env (fleet.key or
+        # fleet.existingSecret), so the key isn't stored in this ConfigMap.
+        fleet_key: ${env:CHOPPER_FLEET_KEY}
 
     connectors:
       routing/traces:

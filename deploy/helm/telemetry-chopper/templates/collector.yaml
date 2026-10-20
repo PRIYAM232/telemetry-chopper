@@ -30,6 +30,12 @@ spec:
         # Roll the pods whenever the pipeline config changes — the collector
         # only reads its config at startup.
         checksum/config: {{ include (print $.Template.BasePath "/configmap-collector.yaml") . | sha256sum }}
+        {{- if not .Values.fleet.existingSecret }}
+        # And when the chart-managed fleet key changes (a rotation). Salted
+        # with the release name: a plain SHA-256 of the key is exactly what
+        # the control plane stores, and needn't be on every pod.
+        checksum/fleet-key: {{ printf "%s/%s" .Release.Name .Values.fleet.key | sha256sum }}
+        {{- end }}
         {{- with .Values.collector.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -52,10 +58,15 @@ spec:
           args:
             - --config
             - /etc/otelcol/otelcol-k8s.yaml
-          {{- if or .Values.collector.extraEnv .Values.collector.coldStorage.file.enabled }}
-          # Read by the collector config as ${env:NAME} (e.g. archive
-          # exporter credentials), so secrets stay out of the ConfigMap.
+          # Read by the collector config as ${env:NAME} (the fleet key,
+          # archive exporter credentials), so secrets stay out of the
+          # ConfigMap.
           env:
+            - name: CHOPPER_FLEET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.fleet.existingSecret | default (printf "%s-fleet" .Release.Name) }}
+                  key: CHOPPER_FLEET_KEY
             {{- if .Values.collector.coldStorage.file.enabled }}
             # Per-pod archive file names, so replicas sharing one volume
             # never write to (or rotate) the same file.
@@ -67,7 +78,6 @@ spec:
             {{- with .Values.collector.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
-          {{- end }}
           {{- with .Values.collector.extraEnvFrom }}
           envFrom:
             {{- toYaml . | nindent 12 }}

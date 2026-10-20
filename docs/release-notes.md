@@ -14,6 +14,7 @@
 - The control plane stores fleet keys as SHA-256 hashes instead of the keys themselves, so it can't show a key again after the first time. Upgrading converts existing keys; collectors need no changes.
 - The seed step in the Docker Compose, sandbox and pilot stacks and the Helm chart only creates `local-dev-fleet` when it doesn't exist. It used to write the fleet's published key and sample rules back on every start or upgrade, undoing a rotated key, a paused rule or an edited one.
 - With no fleet, the dashboard and pricing pages link to the **Fleets** page instead of asking you to run the seed.
+- The Helm chart keeps the fleet key in a `<release>-fleet` Secret instead of the collector ConfigMap, and restarts the collectors when `fleet.key` changes. The new `fleet.existingSecret` value uses a Secret you manage instead. Upgrades need no value changes. See [Create a fleet](deploy/manage-fleets.md#create-a-fleet).
 
 ## October 18, 2026
 
