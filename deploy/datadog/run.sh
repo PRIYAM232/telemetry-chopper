@@ -14,6 +14,12 @@ psql_cp() { docker exec -i chopper-dd-postgres psql -U chopper -d chopper_contro
 metric() { # sum of a collector self-metric, optional label filter regex
   curl -s 127.0.0.1:18898/metrics | grep -E "^$1[{ ]" | grep -E "${2:-.}" | awk '{s+=$NF} END {print s+0}'
 }
+agent_metric() { # sum of a Datadog Agent internal telemetry counter
+  docker exec chopper-dd-agent curl -s localhost:5000/telemetry | grep -E "^$1[{ ]" | awk '{s+=$NF} END {print s+0}'
+}
+agent_stat() { # a "Name: value" line from agent status, e.g. LogsSent
+  docker exec chopper-dd-agent agent status 2>/dev/null | awk -v k="$1:" '$1 == k {print $2; exit}'
+}
 
 case "${1:-}" in
   up)
@@ -37,9 +43,19 @@ case "${1:-}" in
         "$(metric otelcol_exporter_sent_$s 'otlp_grpc/datadog')"
     done
     printf '  %-14s %s\n' "send failures" "$(metric 'otelcol_exporter_send_failed_(spans|log_records|metric_points)' 'otlp_grpc/datadog')"
-    echo "== Datadog Agent"
-    docker exec chopper-dd-agent agent status 2>/dev/null | grep -E -A3 '^\s*(API Keys status|OTLP|Logs Agent)' | grep -v '^--' | sed 's/^/  /' | head -20
-    docker exec chopper-dd-agent agent status 2>/dev/null | grep -E -i 'API key ending|Transactions|Errors|LogsSent|BytesSent' | sed 's/^/  /' | head -12
+    echo "== Datadog Agent (totals since it started)"
+    docker exec chopper-dd-agent agent status 2>/dev/null | grep -m1 -E 'API key ending with .*:' | sed -E 's/^ */  /'
+    printf '  %-14s received %-6s sent to datadog %s (retries %s)\n' logs \
+      "$(agent_metric runtime__datadog_agent_otlp_logs_events)" "$(agent_stat LogsSent)" "$(agent_stat RetryCount)"
+    printf '  %-14s received %s\n' metric_points "$(agent_metric runtime__datadog_agent_otlp_metrics_events)"
+    # The Agent's APM status and counters don't count spans that arrive over
+    # OTLP (they stay at 0 / "No traces received"), so report upload errors
+    # instead and count spans in Datadog.
+    printf '  %-14s not counted by the Agent; upload errors %s\n' spans \
+      "$(docker logs chopper-dd-agent 2>&1 | grep '| TRACE |' | grep -c -E '\| (ERROR|WARN) \|.*pkg/trace/writer' || true)"
+    if [ -z "${DD_APP_KEY:-}" ] || [ -z "${2:-}" ]; then
+      echo "  To count spans per case, set DD_APP_KEY and pass a run id, or search APM for service:chopper-dd-test"
+    fi
     if [ -n "${2:-}" ] && [ -n "${DD_APP_KEY:-}" ]; then
       echo "== Datadog API (run $2, last 30 min; indexing can lag 1-2 min)"
       for kind in logs spans; do
