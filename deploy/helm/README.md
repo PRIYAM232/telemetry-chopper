@@ -12,7 +12,8 @@ deploy/helm/telemetry-chopper/
 │   └── chopper-collector-dashboard.json  # Grafana dashboard (inlined by .Files.Get)
 └── templates/
     ├── _helpers.tpl              # labels, DATABASE_URL + control-plane URL helpers
-    ├── secret.yaml               # DATABASE_URL for the control plane
+    ├── secret.yaml               # DATABASE_URL and the first operator's sign-in
+    ├── secret-fleet.yaml         # the collectors' fleet key (unless fleet.existingSecret)
     ├── configmap-collector.yaml  # otelcol-k8s.yaml pipeline config
     ├── postgres.yaml             # StatefulSet + PVC template + headless Service
     ├── migration-job.yaml        # prisma migrate deploy + db seed (Helm hook)
@@ -276,6 +277,11 @@ missing its bucket, storage URL (unless you use a connection string) or volume.
   console's **Fleets** page and set `fleet.id` / `fleet.key` to it for any
   real deployment; see
   [Create fleets and rotate fleet keys](../../docs/deploy/manage-fleets.md).
+  The key goes into the `<release>-fleet` Secret, never the collector
+  ConfigMap, and changing it rolls the collector pods. To manage the Secret
+  yourself, set `fleet.existingSecret` to a Secret with the key
+  `CHOPPER_FLEET_KEY`; after updating it, run
+  `kubectl rollout restart deploy/<release>-collector`.
 - **External producers**: `--set collector.service.type=LoadBalancer` to
   expose OTLP 4317/4318 outside the cluster.
 

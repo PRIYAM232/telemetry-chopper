@@ -24,12 +24,22 @@ processors:
 
 The panel fills in the address you opened the console at. Replace it if your collectors reach the control plane at a different address, such as an internal service name.
 
-With the Helm chart, set the fleet ID and key as chart values instead:
+With the Helm chart, set the fleet ID and key as chart values instead. The chart keeps the key in the `<release>-fleet` Secret and passes it to the collectors as `CHOPPER_FLEET_KEY`, so it never appears in the collector ConfigMap. Changing it restarts the collector pods.
 
 ```bash
 helm upgrade chopper deploy/helm/telemetry-chopper -n chopper --reuse-values \
   --set fleet.id=<fleet-id> --set fleet.key=<fleet-key>
 ```
+
+To keep the key out of Helm values altogether, store it in a Secret yourself and point the chart at it:
+
+```bash
+kubectl -n chopper create secret generic chopper-fleet --from-literal=CHOPPER_FLEET_KEY=<fleet-key>
+helm upgrade chopper deploy/helm/telemetry-chopper -n chopper --reuse-values \
+  --set fleet.id=<fleet-id> --set fleet.existingSecret=chopper-fleet
+```
+
+Collectors read the key when they start. After you change that Secret, restart them with `kubectl -n chopper rollout restart deploy/chopper-collector`.
 
 ## Choose which fleet the console shows
 

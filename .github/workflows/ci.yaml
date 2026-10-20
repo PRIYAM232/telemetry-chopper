@@ -214,6 +214,27 @@ jobs:
                --set collector.coldStorage.s3.enabled=true > /dev/null 2>&1; then
             echo "expected s3.enabled without s3.bucket to fail the render"; exit 1
           fi
+      - name: Fleet key stays out of the collector ConfigMap
+        run: |
+          chart=deploy/helm/telemetry-chopper
+          canary=chopper_sk_ci_canary_value
+          if helm template chopper "$chart" --set fleet.key="$canary" \
+               --show-only templates/configmap-collector.yaml | grep -q "$canary"; then
+            echo "the fleet key was rendered into the collector ConfigMap"; exit 1
+          fi
+          helm template chopper "$chart" --set fleet.key="$canary" \
+            --show-only templates/secret-fleet.yaml | grep -q "$canary"
+      - name: Render with an existing fleet key Secret
+        run: >
+          helm template chopper deploy/helm/telemetry-chopper
+          --set fleet.existingSecret=chopper-fleet --set fleet.key=
+          > /dev/null
+      - name: A missing fleet key fails the render
+        run: |
+          if helm template chopper deploy/helm/telemetry-chopper \
+               --set fleet.key= > /dev/null 2>&1; then
+            echo "expected an empty fleet.key without fleet.existingSecret to fail the render"; exit 1
+          fi
 
   image-scan:
     name: ${{ matrix.image }} CVE scan (Trivy)
