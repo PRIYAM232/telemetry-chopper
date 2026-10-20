@@ -51,4 +51,7 @@ export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
   OPERATOR_CREATED: "Added operator",
   OPERATOR_REMOVED: "Removed operator",
   OPERATOR_PASSWORD_CHANGED: "Changed password",
+  FLEET_CREATED: "Created fleet",
+  FLEET_KEY_ROTATED: "Rotated fleet key",
+  FLEET_PREVIOUS_KEY_REVOKED: "Revoked previous fleet key",
 };

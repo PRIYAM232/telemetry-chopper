@@ -266,8 +266,8 @@ export async function POST(
     writes.push(
       prisma.collectorInstance.upsert({
         where: { fleetId_instanceId: { fleetId: auth.fleetId, instanceId: collector.instanceId } },
-        create: { fleetId: auth.fleetId, ...collector, lastSeenAt: now },
-        update: { intervalSeconds: collector.intervalSeconds, lastSeenAt: now },
+        create: { fleetId: auth.fleetId, ...collector, lastSeenAt: now, usesPreviousKey: auth.usedPreviousKey },
+        update: { intervalSeconds: collector.intervalSeconds, lastSeenAt: now, usesPreviousKey: auth.usedPreviousKey },
       }),
       prisma.collectorInstance.deleteMany({
         where: { fleetId: auth.fleetId, lastSeenAt: { lt: new Date(now.getTime() - PRUNE_AFTER_MS) } },

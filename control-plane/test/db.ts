@@ -1,8 +1,8 @@
 // Test database helpers: reset between tests and build the rows most tests
 // need.
 
-import { randomBytes, randomUUID } from "node:crypto";
 import type { Prisma } from "@/generated/prisma/client";
+import { createFleet as createFleetWithKey } from "@/lib/fleets";
 import { prisma } from "@/lib/prisma";
 
 /** Empties every table the migrations created, keeping the schema. */
@@ -31,8 +31,8 @@ export async function createRule(fleetId: string, data: Partial<Prisma.PolicyRul
   });
 }
 
+/** A fleet with a fresh key; `apiKey` is the plaintext key collectors send. */
 export async function createFleet(name = "test-fleet") {
-  return prisma.collectorFleet.create({
-    data: { id: randomUUID(), name, apiKey: `chopper_test_sk_${randomBytes(16).toString("hex")}` },
-  });
+  const { fleet, key } = await createFleetWithKey({ name, description: null });
+  return { ...fleet, apiKey: key };
 }

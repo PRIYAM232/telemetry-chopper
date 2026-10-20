@@ -2,6 +2,8 @@ import * as crypto from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { authenticateFleet } from "@/lib/fleet-auth";
+import { rotateFleetKey } from "@/lib/fleets";
+import { prisma } from "@/lib/prisma";
 import { createFleet } from "@test/db";
 import { fleetRequest } from "@test/request";
 
@@ -24,7 +26,40 @@ describe("authenticateFleet", () => {
   it("accepts the fleet's own key", async () => {
     const fleet = await createFleet();
     const result = await authenticateFleet(fleetRequest("/", { apiKey: fleet.apiKey }), fleet.id);
-    expect(result).toEqual({ ok: true, fleetId: fleet.id });
+    expect(result).toEqual({ ok: true, fleetId: fleet.id, usedPreviousKey: false });
+  });
+
+  it("accepts the previous key during its grace period, and says so", async () => {
+    const fleet = await createFleet();
+    const rotated = await rotateFleetKey(fleet.id, 3600);
+    if (!rotated.ok) throw new Error("rotation failed");
+
+    const old = await authenticateFleet(fleetRequest("/", { apiKey: fleet.apiKey }), fleet.id);
+    const current = await authenticateFleet(fleetRequest("/", { apiKey: rotated.key }), fleet.id);
+
+    expect(old).toEqual({ ok: true, fleetId: fleet.id, usedPreviousKey: true });
+    expect(current).toEqual({ ok: true, fleetId: fleet.id, usedPreviousKey: false });
+  });
+
+  it("rejects the previous key once its grace period ends", async () => {
+    const fleet = await createFleet();
+    await rotateFleetKey(fleet.id, 3600, new Date(Date.now() - 2 * 3600_000));
+    const result = await authenticateFleet(fleetRequest("/", { apiKey: fleet.apiKey }), fleet.id);
+    expect((await failure(result)).status).toBe(401);
+  });
+
+  it("rejects the previous key at once after a rotation without a grace period", async () => {
+    const fleet = await createFleet();
+    await rotateFleetKey(fleet.id, 0);
+    const result = await authenticateFleet(fleetRequest("/", { apiKey: fleet.apiKey }), fleet.id);
+    expect((await failure(result)).status).toBe(401);
+  });
+
+  it("never stores the key itself", async () => {
+    const fleet = await createFleet();
+    const row = await prisma.collectorFleet.findUniqueOrThrow({ where: { id: fleet.id } });
+    expect(JSON.stringify(row)).not.toContain(fleet.apiKey);
+    expect(row.apiKeyHint).toBe(fleet.apiKey.slice(-4));
   });
 
   it("accepts any capitalization of the Bearer scheme", async () => {
@@ -70,7 +105,7 @@ describe("authenticateFleet", () => {
     expect(JSON.parse(body)).toEqual({ error: "fleetId must be a UUID" });
   });
 
-  it("compares same-length keys with timingSafeEqual", async () => {
+  it("compares key digests with timingSafeEqual", async () => {
     const fleet = await createFleet();
     const spy = vi.mocked(crypto.timingSafeEqual);
     spy.mockClear();

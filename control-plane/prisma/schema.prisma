@@ -88,8 +88,19 @@ model CollectorFleet {
   id          String   @id @default(uuid()) @db.Uuid
   name        String
   description String?
-  // Bearer token presented by collectors when polling for policies.
-  apiKey      String   @unique
+  // Collectors authenticate with `Authorization: Bearer <fleet key>`. Only
+  // the key's SHA-256 (hex) is stored: the key itself is shown once, when the
+  // fleet is created or its key rotated (src/lib/fleet-keys.ts). The hint is
+  // the key's last four characters, so operators can tell keys apart.
+  apiKeyHash      String   @unique
+  apiKeyHint      String
+  apiKeyCreatedAt DateTime @default(now())
+  // After a rotation the replaced key keeps working until
+  // previousApiKeyExpiresAt, so collectors can be moved to the new key
+  // without a gap. All three are NULL when no previous key is valid.
+  previousApiKeyHash      String?
+  previousApiKeyHint      String?
+  previousApiKeyExpiresAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -329,6 +340,10 @@ model CollectorInstance {
   // intervals pass without a heartbeat.
   intervalSeconds Float
   lastSeenAt      DateTime
+  // Whether its latest heartbeat authenticated with the fleet's previous key
+  // (one rotated out but still in its grace period): the Fleets page counts
+  // these so operators know when the old key can be revoked.
+  usesPreviousKey Boolean @default(false)
 
   @@id([fleetId, instanceId])
   @@index([lastSeenAt])
@@ -392,6 +407,9 @@ enum AuditAction {
   OPERATOR_CREATED
   OPERATOR_REMOVED
   OPERATOR_PASSWORD_CHANGED
+  FLEET_CREATED
+  FLEET_KEY_ROTATED
+  FLEET_PREVIOUS_KEY_REVOKED
 }
 
 // Who changed what, and when. Append-only: nothing in the app updates or

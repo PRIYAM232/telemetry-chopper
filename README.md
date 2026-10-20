@@ -182,7 +182,7 @@ cd telemetry-chopper
 docker compose -f deploy/docker/docker-compose.yaml up -d --build
 ```
 
-This brings up the full stack in dependency order: PostgreSQL → a one-shot migrate + seed job → the Control Plane → the `otelcol-chopper` collector. The seed provisions a deterministic **local dev fleet** whose credentials are pre-wired into the collector config (rotate these for any real deployment).
+This brings up the full stack in dependency order: PostgreSQL → a one-shot migrate + seed job → the Control Plane → the `otelcol-chopper` collector. The seed provisions a deterministic **local dev fleet** whose credentials are pre-wired into the collector config. Its key is public, so [rotate it or create your own fleet](docs/deploy/manage-fleets.md#replace-the-development-fleets-key) for any real deployment.
 
 | Service | Port | Purpose |
 |---|---|---|
@@ -302,7 +302,7 @@ processors:
     sync_interval: 10s          # how often to poll for rule changes
     stats_endpoint: http://control-plane:3000/api/v1/telemetry/<fleet-id>/stats
     stats_interval: 10s         # how often to report match/drop stats
-    fleet_key: <fleet-api-key>  # per-fleet auth; seeded value is dev-only
+    fleet_key: ${env:CHOPPER_FLEET_KEY}  # per-fleet auth; create fleets and keys on the Fleets page
     log_span_details: false     # per-span debug logging (dev only)
 ```
 
@@ -314,7 +314,7 @@ We're open-sourcing Telemetry Chopper with a deliberately honest security story:
 
 ### Designed for trusted environments (the reality)
 
-Telemetry Chopper V1 assumes deployment inside a **trusted network perimeter** — your private VPC, internal network, or Kubernetes cluster. The Control Plane requires every operator to sign in and records every change in an audit log, but it has no roles or single sign-on yet, and collector-to-control-plane traffic is authenticated with per-fleet API keys over plain HTTP. Neither component should be exposed directly to the public internet as-is. The docker-compose quick start ships **default sign-in credentials** and the docker-compose and Helm quick starts seed **deterministic dev fleet credentials** for a friction-free first run — replace both for anything beyond local evaluation.
+Telemetry Chopper V1 assumes deployment inside a **trusted network perimeter** — your private VPC, internal network, or Kubernetes cluster. The Control Plane requires every operator to sign in and records every change in an audit log, but it has no roles or single sign-on yet, and collector-to-control-plane traffic is authenticated with per-fleet API keys over plain HTTP. Neither component should be exposed directly to the public internet as-is. The docker-compose quick start ships **default sign-in credentials** and the docker-compose and Helm quick starts seed **deterministic dev fleet credentials** for a friction-free first run — replace both for anything beyond local evaluation. Fleet keys are stored hashed and can be [rotated from the console](docs/deploy/manage-fleets.md#rotate-a-fleet-key) with a grace period, so collectors move to a new key without a gap.
 
 ### Production deployment recommendations
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { rotateFleetKey } from "@/lib/fleets";
 import { prisma } from "@/lib/prisma";
 import { POST } from "./route";
 import { createFleet, createRule } from "@test/db";
@@ -120,6 +121,24 @@ describe("POST /api/v1/telemetry/:fleetId/stats", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].intervalSeconds).toBe(30);
     expect(rows[0].lastSeenAt.getTime()).toBeGreaterThanOrEqual(first.lastSeenAt.getTime());
+  });
+
+  it("records whether the collector still authenticates with the previous key", async () => {
+    const fleet = await createFleet();
+    const rotated = await rotateFleetKey(fleet.id, 3600);
+    if (!rotated.ok) throw new Error("rotation failed");
+
+    await report(fleet, { collector_id: "gw-old" });
+    await report({ id: fleet.id, apiKey: rotated.key }, { collector_id: "gw-new" });
+    await report(fleet, { collector_id: "gw-moved" });
+    await report({ id: fleet.id, apiKey: rotated.key }, { collector_id: "gw-moved" });
+
+    const rows = await prisma.collectorInstance.findMany({ orderBy: { instanceId: "asc" } });
+    expect(rows.map((r) => [r.instanceId, r.usesPreviousKey])).toEqual([
+      ["gw-moved", false],
+      ["gw-new", false],
+      ["gw-old", true],
+    ]);
   });
 
   it.each([

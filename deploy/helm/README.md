@@ -271,9 +271,11 @@ missing its bucket, storage URL (unless you use a connection string) or volume.
   `CHOPPER_ADMIN_EMAIL`, `CHOPPER_ADMIN_PASSWORD`). An empty password is
   generated once and kept across upgrades. See
   [Sign in, manage operators and review the audit log](../../docs/deploy/sign-in-and-operators.md).
-- **Fleet credentials**: defaults are the deterministic dev seed values —
-  rotate `fleet.id` / `fleet.key` (and set `migrator.seed=false`) for any
-  real deployment.
+- **Fleet credentials**: defaults are the deterministic dev seed values,
+  whose key is public. Create a fleet (or rotate the dev fleet's key) on the
+  console's **Fleets** page and set `fleet.id` / `fleet.key` to it for any
+  real deployment; see
+  [Create fleets and rotate fleet keys](../../docs/deploy/manage-fleets.md).
 - **External producers**: `--set collector.service.type=LoadBalancer` to
   expose OTLP 4317/4318 outside the cluster.
 
