@@ -21,6 +21,8 @@ Your settings provide:
 | Ingest price per GB, per signal | *r* |
 | Indexing price per million events, for spans and logs | *i* |
 | Metric series price per 100 series per month | *s* |
+| Included ingested span GB per month | *A* |
+| Included indexed spans per month | *A*ᵢ |
 | Egress price per GB | *e* |
 | Wire compression ratio | *k* |
 | Committed volume, in GB per month | *C* |
@@ -44,6 +46,15 @@ series savings = series-hours ÷ 730 ÷ 100 × s
 ```
 
 730 is the number of hours in a billing month (8,760 ÷ 12): vendors that bill by series count a month's series as the average over its hours.
+
+For spans, when the rate card has a span allowance, each billing month is priced as a whole:
+
+```
+span ingest savings   = (max(0, forwarded GB + dropped GB − A) − max(0, forwarded GB − A)) × r
+span indexing savings = (max(0, received − Aᵢ) − max(0, received − dropped − unindexed − Aᵢ)) ÷ 1,000,000 × i
+```
+
+A time range gets each month's savings in proportion to the dropped bytes (for ingest) and dropped plus unindexed spans (for indexing) that fall inside it. With *A* and *A*ᵢ at 0, these reduce to the formulas above.
 
 **Estimated savings** on the dashboard is the sum of ingest, indexing and series savings across all signals.
 

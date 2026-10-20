@@ -178,6 +178,41 @@ export function PricingForm({
         </p>
       </fieldset>
 
+      <fieldset className="flex flex-col gap-3">
+        <legend className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          Included span allowance per month
+        </legend>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Ingested spans, GB">
+            <input
+              name="tracesIncludedGbPerMonth"
+              inputMode="decimal"
+              pattern="\d{1,11}(\.\d{1,3})?"
+              title="GB of ingested spans included per month, up to 3 decimal places (e.g. 1500)"
+              defaultValue={String(card.tracesIncludedGbPerMonth)}
+              className={`${inputClass} tabular-nums`}
+            />
+          </Field>
+          <Field label="Indexed spans, millions">
+            <input
+              name="tracesIncludedIndexedMillionsPerMonth"
+              inputMode="decimal"
+              pattern="\d{1,11}(\.\d{1,3})?"
+              title="Millions of indexed spans included per month, up to 3 decimal places (e.g. 10)"
+              defaultValue={String(card.tracesIncludedIndexedMillionsPerMonth)}
+              className={`${inputClass} tabular-nums`}
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Span volume your plan includes each month before ingest and indexing are
+          billed. Datadog includes 150 GB of ingested spans and 1 million indexed spans
+          per APM host (30 GB and 195,000 per Fargate task), pooled across your account:
+          with 10 APM hosts, enter 1500 and 10. Dropped spans only save money above the
+          allowance. Leave 0 if your plan has none.
+        </p>
+      </fieldset>
+
       {state.error && (
         <p
           role="alert"

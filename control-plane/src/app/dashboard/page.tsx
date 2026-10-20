@@ -23,6 +23,8 @@ import { computeEgressSavings, getEgressConfig } from "@/lib/egress";
 import { formatUSD } from "@/lib/format";
 import { computeSavings, getDroppedSeriesHours, getRateCard, rateCardLabel } from "@/lib/pricing";
 import { getFleetChoices } from "@/lib/fleet-selection";
+import { getCommitment } from "@/lib/overage";
+import { getSpanSavings, hasSpanAllowance, withSpanSavings } from "@/lib/span-allowance";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
 import {
@@ -188,7 +190,7 @@ export default async function DashboardPage({
     [TargetSignal.METRICS]: metricsReceived,
   };
   // BIGINT sums arrive as bigint; Number() is exact below 9 PB.
-  const savings = computeSavings(
+  const baseSavings = computeSavings(
     {
       droppedBytes: {
         traces: Number(totals._sum.tracesDroppedBytes ?? 0),
@@ -204,6 +206,21 @@ export default async function DashboardPage({
     },
     rateCard,
   );
+  // A monthly span allowance (Datadog: per APM host) means dropped spans
+  // only save money above it, month by month.
+  const savings = hasSpanAllowance(rateCard)
+    ? withSpanSavings(
+        baseSavings,
+        await getSpanSavings(
+          fleet.id,
+          since,
+          new Date(nowMs),
+          (await getCommitment(fleet.id))?.billingCycleDay ?? 1,
+          rateCard,
+          rateCard,
+        ),
+      )
+    : baseSavings;
   const egress = computeEgressSavings(savings.droppedBytes, egressConfig);
   const totalSavingsUSD = savings.totalUSD + egress.usd;
   const unsizedDrops =

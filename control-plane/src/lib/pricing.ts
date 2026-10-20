@@ -20,6 +20,7 @@
 
 import { ObservabilityVendor } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import type { SpanAllowance } from "@/lib/span-allowance";
 
 // Vendors bill decimal gigabytes.
 export const BYTES_PER_GB = 1_000_000_000;
@@ -52,7 +53,7 @@ export type SeriesPrice = { metricsPricePer100Series: number };
 
 // A plain, serializable view of PricingConfig (Prisma Decimals can't cross
 // into client components). vendor is null while the fleet runs on defaults.
-export type RateCard = SignalPrices & IndexPrices & SeriesPrice & {
+export type RateCard = SignalPrices & IndexPrices & SeriesPrice & SpanAllowance & {
   vendor: ObservabilityVendor | null;
   customVendorName: string | null;
 };
@@ -67,6 +68,8 @@ export const DEFAULT_RATE_CARD: RateCard = {
   tracesIndexPricePerMillion: 0,
   logsIndexPricePerMillion: 0,
   metricsPricePer100Series: 0,
+  tracesIncludedGbPerMonth: 0,
+  tracesIncludedIndexedMillionsPerMonth: 0,
 };
 
 export function rateCardLabel(card: RateCard): string {
@@ -89,6 +92,8 @@ export async function getRateCard(fleetId: string): Promise<RateCard> {
     tracesIndexPricePerMillion: row.tracesIndexPricePerMillion.toNumber(),
     logsIndexPricePerMillion: row.logsIndexPricePerMillion.toNumber(),
     metricsPricePer100Series: row.metricsPricePer100Series.toNumber(),
+    tracesIncludedGbPerMonth: row.tracesIncludedGbPerMonth.toNumber(),
+    tracesIncludedIndexedMillionsPerMonth: row.tracesIncludedIndexedMillionsPerMonth.toNumber(),
   };
 }
 
@@ -108,6 +113,8 @@ export async function saveRateCard(
     tracesIndexPricePerMillion: card.tracesIndexPricePerMillion,
     logsIndexPricePerMillion: card.logsIndexPricePerMillion,
     metricsPricePer100Series: card.metricsPricePer100Series,
+    tracesIncludedGbPerMonth: card.tracesIncludedGbPerMonth,
+    tracesIncludedIndexedMillionsPerMonth: card.tracesIncludedIndexedMillionsPerMonth,
   };
   await prisma.pricingConfig.upsert({
     where: { fleetId },
