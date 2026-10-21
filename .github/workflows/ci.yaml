@@ -131,7 +131,10 @@ jobs:
             --show-only templates/configmap-collector.yaml \
             | sed -n '/otelcol-k8s.yaml: |/,$p' | tail -n +2 | sed 's/^    //' \
             > "$RUNNER_TEMP/otelcol-k8s.yaml"
-          for f in data-plane/config/otelcol-dev.yaml deploy/docker/otelcol-docker.yaml \
+          # otelcol-standalone.yaml also loads the example rules file the
+          # packages install.
+          for f in data-plane/config/otelcol-dev.yaml data-plane/config/otelcol-standalone.yaml \
+                   deploy/docker/otelcol-docker.yaml \
                    deploy/datadog/otelcol-datadog.yaml deploy/datadog/otelcol-datadog-direct.yaml \
                    "$RUNNER_TEMP/otelcol-k8s.yaml"; do
             echo "== $f"

@@ -113,6 +113,7 @@ The rule appears in the list and collectors start enforcing it on their next pol
 
 - [Monitor what each rule is doing](monitor-rule-activity.md)
 - [Pause, delete and restore rules](pause-and-delete-rules.md)
+- [Run without the control plane](rules-file.md): keep rules in a YAML file instead of the dashboard
 - [Configure vendor pricing](../savings/configure-vendor-pricing.md) to see what your rules save in dollars
 
 ## Frequently asked questions

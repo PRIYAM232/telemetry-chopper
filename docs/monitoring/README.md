@@ -132,6 +132,8 @@ chopper_filter policy sync: rule not enforced  {"rule": "mask-cards-lookahead", 
 
 Paused rules don't produce a warning.
 
+A collector that reads a [rules file](../rules/rules-file.md) logs the same lines with `chopper_filter rules file:` in place of `chopper_filter policy sync:`, and `rules_file` in place of `fleet_id`.
+
 ## Frequently asked questions
 
 ### Why does Prometheus show a different drop count from the dashboard?

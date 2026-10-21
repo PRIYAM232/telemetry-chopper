@@ -27,6 +27,9 @@ const (
 	// thousands of rules; anything larger is a control-plane bug, not a
 	// bigger fleet.
 	maxSyncResponseBytes = 4 << 20
+
+	syncLogPrefix      = "chopper_filter policy sync: "
+	rulesFileLogPrefix = "chopper_filter rules file: "
 )
 
 // ruleEngine is the control-plane client shared by every signal processor
@@ -64,6 +67,11 @@ type ruleEngine struct {
 	rulesMu       sync.RWMutex
 	rules         []compiledRule // last known-good ruleset, evaluation-ready; nil until first successful sync
 	lastRulesHash [sha256.Size]byte
+
+	// lastRulesFileError is the last rules-file problem logged, so a broken
+	// file is reported once rather than on every check. Only the reload
+	// goroutine touches it.
+	lastRulesFileError string
 
 	// lastETag is the ETag of the last policy response that parsed cleanly,
 	// echoed back as If-None-Match so an unchanged control plane answers with
@@ -148,18 +156,43 @@ func (e *ruleEngine) adoptConfigIfIdle(cfg *Config) {
 // spawns the control-plane goroutines. The collector's startup context is
 // only valid for the duration of startup, so the goroutines get their own
 // cancellable context tied to the last stop instead.
-func (e *ruleEngine) start() {
+//
+// In rules_file mode the file is loaded here, before any data flows, and a
+// load failure fails the processor's Start, so a collector never runs with
+// a rules file it couldn't read. (Config.Validate already parsed the file;
+// this catches it changing or vanishing in between.)
+func (e *ruleEngine) start() error {
 	e.lifecycleMu.Lock()
 	defer e.lifecycleMu.Unlock()
 
 	e.refs++
 	if e.refs > 1 {
-		return
+		return nil
+	}
+
+	if e.cfg.RulesFile != "" {
+		rules, raw, err := loadRulesFile(e.cfg.RulesFile)
+		if err != nil {
+			e.refs--
+			return err
+		}
+		e.publishRules(rules, 1, sha256.Sum256(raw), rulesFileLogPrefix, zap.String("rules_file", e.cfg.RulesFile))
+		e.logger.Info("chopper_filter started with a local rules file",
+			zap.String("rules_file", e.cfg.RulesFile),
+			zap.Duration("rules_file_check_interval", e.cfg.RulesFileCheckInterval),
+		)
+		if e.cfg.RulesFileCheckInterval > 0 {
+			ctx, cancel := context.WithCancel(context.Background())
+			e.cancelBackground = cancel
+			e.backgroundDone.Add(1)
+			go e.runRulesFileLoop(ctx)
+		}
+		return nil
 	}
 
 	if e.cfg.SyncEndpoint == "" && e.cfg.StatsEndpoint == "" {
-		e.logger.Info("chopper_filter started in static pass-through mode (no sync_endpoint/stats_endpoint configured)")
-		return
+		e.logger.Info("chopper_filter started in static pass-through mode (no sync_endpoint, stats_endpoint or rules_file configured)")
+		return nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -181,6 +214,7 @@ func (e *ruleEngine) start() {
 			zap.Duration("stats_interval", e.cfg.StatsInterval),
 		)
 	}
+	return nil
 }
 
 // stop deregisters one processor; the last deregistration signals the
@@ -360,20 +394,72 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 	// which degrades cleanly to unconditional polling.
 	e.lastETag = resp.Header.Get("ETag")
 
-	hash := sha256.Sum256(body)
+	e.publishRules(payload.Rules, payload.ActiveCollectors, sha256.Sum256(body), syncLogPrefix, zap.String("fleet_id", payload.FleetID))
+}
 
+// --- Local rules file ---------------------------------------------------------
+
+// runRulesFileLoop re-reads the rules file every check interval until the
+// last stop. Start already loaded it once.
+func (e *ruleEngine) runRulesFileLoop(ctx context.Context) {
+	defer e.backgroundDone.Done()
+
+	ticker := time.NewTicker(e.cfg.RulesFileCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			e.reloadRulesFile()
+		}
+	}
+}
+
+// reloadRulesFile publishes the rules file if it changed and is valid. A
+// file that can't be read or fails validation leaves the current ruleset in
+// force — the same fail-safe stance as a control-plane outage — and the
+// error is logged once per distinct problem, not on every check.
+func (e *ruleEngine) reloadRulesFile() {
+	rules, raw, err := loadRulesFile(e.cfg.RulesFile)
+	if err != nil {
+		if msg := err.Error(); msg != e.lastRulesFileError {
+			e.lastRulesFileError = msg
+			e.logger.Error(rulesFileLogPrefix+"not applied, keeping the current rules", zap.Error(err))
+		}
+		return
+	}
+	if e.lastRulesFileError != "" {
+		e.lastRulesFileError = ""
+		e.logger.Info(rulesFileLogPrefix+"valid again", zap.String("rules_file", e.cfg.RulesFile))
+	}
+	e.publishRules(rules, 1, sha256.Sum256(raw), rulesFileLogPrefix, zap.String("rules_file", e.cfg.RulesFile))
+}
+
+// --- Publishing ----------------------------------------------------------------
+
+// publishRules compiles a ruleset and swaps it in, unless its source bytes
+// hash the same as the ruleset already published. Shared by the control-plane
+// sync and the rules file. logPrefix starts every log message ("chopper_filter
+// policy sync: " or "chopper_filter rules file: "; the control-plane wording
+// is relied on by docs and log alerts), and source identifies where the
+// rules came from in the "ruleset updated" line. activeCollectors divides
+// fleet-wide THROTTLE rates (issue #46); a rules file passes 1, since a
+// standalone collector is its own fleet.
+func (e *ruleEngine) publishRules(rules []PolicyRule, activeCollectors int, hash [sha256.Size]byte, logPrefix string, source zap.Field) {
 	e.rulesMu.Lock()
 	changed := hash != e.lastRulesHash
 	e.rulesMu.Unlock()
 	if !changed {
-		e.logger.Debug("chopper_filter policy sync: ruleset unchanged")
+		e.logger.Debug(logPrefix+"ruleset unchanged", source)
 		return
 	}
 
 	// Compile OUTSIDE the write lock: regexp.Compile is the expensive step
 	// this design exists to keep away from the hot paths, and holding rulesMu
 	// through it would stall every consumer on snapshotRules meanwhile.
-	compiled := compileRulesForFleet(payload.Rules, payload.ActiveCollectors, e.logger)
+	compiled := compileRulesForFleet(rules, activeCollectors, e.logger)
 	// Hand each rule its long-lived counters before anything can evaluate
 	// against the new slice.
 	e.ruleStats.adopt(compiled)
@@ -401,7 +487,7 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 			} else {
 				unsupported++
 			}
-			e.logger.Warn("chopper_filter policy sync: rule not enforced",
+			e.logger.Warn(logPrefix+"rule not enforced",
 				zap.String("rule", r.Name),
 				zap.String("rule_id", r.ID),
 				zap.String("signal", r.TargetSignal),
@@ -416,16 +502,16 @@ func (e *ruleEngine) syncOnce(ctx context.Context) {
 	for i := range compiled {
 		r := &compiled[i]
 		if r.state == ruleStateEnforced && r.ThrottleScope == ThrottleScopeFleet {
-			e.logger.Info("chopper_filter policy sync: fleet-wide THROTTLE share",
+			e.logger.Info(logPrefix+"fleet-wide THROTTLE share",
 				zap.String("rule", r.Name),
 				zap.Int("fleet_rate", *r.ThrottleRate),
-				zap.Int("active_collectors", max(1, payload.ActiveCollectors)),
+				zap.Int("active_collectors", max(1, activeCollectors)),
 				zap.Float64("collector_rate", r.collectorRate),
 			)
 		}
 	}
-	e.logger.Info("chopper_filter policy sync: ruleset updated",
-		zap.String("fleet_id", payload.FleetID),
+	e.logger.Info(logPrefix+"ruleset updated",
+		source,
 		zap.Int("rules_total", len(compiled)),
 		zap.Int("rules_enforced_traces", enforced[SignalTraces]),
 		zap.Int("rules_enforced_logs", enforced[SignalLogs]),
