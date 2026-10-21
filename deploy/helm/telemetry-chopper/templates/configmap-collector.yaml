@@ -17,6 +17,7 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
     {{- include "telemetry-chopper.labels" . | nindent 4 }}
 data:
+  {{- $ddPassthrough := and .Values.collector.datadogReceiver.enabled .Values.collector.datadogReceiver.agentPassthrough.endpoint }}
   otelcol-k8s.yaml: |
     receivers:
       otlp:
@@ -29,10 +30,25 @@ data:
       # Datadog tracing libraries (collector.datadogReceiver).
       datadog:
         endpoint: 0.0.0.0:{{ .Values.collector.datadogReceiver.port }}
+        {{- if $ddPassthrough }}
+        # Profiles, Data Streams Monitoring, remote configuration and the
+        # rest go on to the Datadog Agent (agentPassthrough).
+        middlewares:
+          - id: chopper_datadog_passthrough
+        {{- end }}
       {{- end }}
 
-    {{- if .Values.collector.persistentQueue.enabled }}
+    {{- if or .Values.collector.persistentQueue.enabled $ddPassthrough }}
     extensions:
+    {{- end }}
+    {{- if $ddPassthrough }}
+      # The Datadog Agent that gets what the datadog receiver doesn't handle
+      # (collector.datadogReceiver.agentPassthrough).
+      chopper_datadog_passthrough:
+        endpoint: {{ .Values.collector.datadogReceiver.agentPassthrough.endpoint | quote }}
+        timeout: {{ .Values.collector.datadogReceiver.agentPassthrough.timeout }}
+    {{- end }}
+    {{- if .Values.collector.persistentQueue.enabled }}
       # Persistent exporter queues (collector.persistentQueue).
       file_storage:
         directory: /var/lib/otelcol/file_storage
@@ -170,8 +186,11 @@ data:
       {{- end }}
 
     service:
-      {{- if .Values.collector.persistentQueue.enabled }}
-      extensions: [file_storage]
+      {{- $extensions := list }}
+      {{- if .Values.collector.persistentQueue.enabled }}{{ $extensions = append $extensions "file_storage" }}{{ end }}
+      {{- if $ddPassthrough }}{{ $extensions = append $extensions "chopper_datadog_passthrough" }}{{ end }}
+      {{- if $extensions }}
+      extensions: [{{ join ", " $extensions }}]
       {{- end }}
       telemetry:
         logs:

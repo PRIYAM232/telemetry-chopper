@@ -16,8 +16,9 @@ help: ## List available targets
 ocb: ## Install the OpenTelemetry Collector Builder (pinned)
 	go install go.opentelemetry.io/collector/cmd/builder@$(OCB_VERSION)
 
-tidy: ## Tidy the custom processor module
+tidy: ## Tidy the custom component modules
 	cd data-plane/processors/filterprocessor && go mod tidy
+	cd data-plane/extensions/datadogpassthrough && go mod tidy
 
 build: ## Compile the otelcol-chopper binary into data-plane/dist/
 	cd data-plane && $(OCB) --config builder-config.yaml

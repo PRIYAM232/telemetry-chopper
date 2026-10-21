@@ -14,9 +14,20 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
   # Traces from Datadog tracing libraries (dd-trace-*), on the Datadog
-  # Agent's trace port. Point DD_TRACE_AGENT_URL at the collector.
+  # Agent's trace port. Point DD_TRACE_AGENT_URL at the collector. Everything
+  # else tracers send to this port (profiles, Data Streams Monitoring,
+  # remote configuration, telemetry...) goes on to the Agent through the
+  # chopper_datadog_passthrough middleware.
   datadog:
     endpoint: 0.0.0.0:8126
+    middlewares:
+      - id: chopper_datadog_passthrough
+
+extensions:
+  # The Agent the datadog receiver hands non-trace requests to: its own trace
+  # API port, not the OTLP one.
+  chopper_datadog_passthrough:
+    endpoint: http://datadog-agent:8126
 
 processors:
   # Sheds load before the collector runs out of memory (issue #48): above
@@ -78,6 +89,7 @@ exporters:
     verbosity: basic
 
 service:
+  extensions: [chopper_datadog_passthrough]
   telemetry:
     logs:
       # chopper_filter emits its batch observations at debug level.

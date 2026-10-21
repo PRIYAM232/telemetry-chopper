@@ -2,8 +2,9 @@
 #
 # Seven independent jobs, one per surface:
 #   go              — vet, gofmt, race-enabled tests and govulncheck for
-#                     every Go module: the chopper_filter engine and the
-#                     sandbox load generator
+#                     every Go module: the chopper_filter engine, the
+#                     chopper_datadog_passthrough extension and the sandbox
+#                     load generator
 #   collector-build — assembles the otelcol-chopper distro with ocb, proving
 #                     builder-config.yaml and the processor still compose,
 #                     then runs govulncheck on the generated module (what ships)
@@ -49,6 +50,11 @@ jobs:
         include:
           - module: filterprocessor
             dir: data-plane/processors/filterprocessor
+          # chopper_datadog_passthrough. Its tests run the stock contrib
+          # datadog receiver with the middleware attached, so an upstream
+          # change that breaks the composition fails here.
+          - module: datadogpassthrough
+            dir: data-plane/extensions/datadogpassthrough
           # The sandbox load generator. Its pii_test.go pins the REDACT
           # pattern documented in deploy/sandbox/README.md against every PII
           # shape the generator emits, so drift in either side fails here.
@@ -117,6 +123,7 @@ jobs:
         run: |
           helm template chopper deploy/helm/telemetry-chopper \
             --set collector.datadogReceiver.enabled=true \
+            --set collector.datadogReceiver.agentPassthrough.endpoint=http://datadog-agent:8126 \
             --set collector.hotBackend.otlp.endpoint=datadog-agent:4317 \
             --set collector.persistentQueue.enabled=false \
             --show-only templates/configmap-collector.yaml \
@@ -259,6 +266,17 @@ jobs:
           test "$(grep -c 'exporters: \[otlp_grpc/hot\]' <<<"$on")" -eq 3
           if helm template chopper "$chart" | grep -q -E 'datadog-apm|transform/datadog|otlp_grpc/hot'; then
             echo "the Datadog receiver or hot backend rendered without being set"; exit 1
+          fi
+          # The Agent passthrough needs both the receiver and an endpoint.
+          pass=$(helm template chopper "$chart" --set collector.datadogReceiver.enabled=true \
+                   --set collector.datadogReceiver.agentPassthrough.endpoint=http://datadog-agent:8126)
+          grep -q -- '- id: chopper_datadog_passthrough' <<<"$pass"
+          grep -q 'endpoint: "http://datadog-agent:8126"' <<<"$pass"
+          grep -q 'extensions: \[file_storage, chopper_datadog_passthrough\]' <<<"$pass"
+          if grep -q chopper_datadog_passthrough <<<"$on" ||
+             helm template chopper "$chart" --set collector.datadogReceiver.agentPassthrough.endpoint=http://x:8126 \
+               | grep -q chopper_datadog_passthrough; then
+            echo "the Datadog Agent passthrough rendered without the receiver and an endpoint"; exit 1
           fi
       - name: Render with an existing fleet key Secret
         run: >

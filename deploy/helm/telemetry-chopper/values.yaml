@@ -95,6 +95,17 @@ collector:
   datadogReceiver:
     enabled: false
     port: 8126
+    # Tracers send more than traces to this port: Continuous Profiler
+    # profiles, Data Streams Monitoring, Dynamic Instrumentation, remote
+    # configuration, instrumentation telemetry and the EVP proxy. The datadog
+    # receiver discards those. Set endpoint to a Datadog Agent's trace port
+    # (not its OTLP port) and they're forwarded there unchanged, e.g.
+    # http://datadog-agent.datadog.svc.cluster.local:8126. Traces still go
+    # through the rules.
+    agentPassthrough:
+      endpoint: ""
+      # Per forwarded request, upload included. Slower requests get a 504.
+      timeout: 30s
 
   # Persistent exporter queues (issue #48). The archive exporters (s3,
   # azureBlob) keep their sending queue in the file_storage extension, so
