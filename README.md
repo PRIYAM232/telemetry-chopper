@@ -237,15 +237,15 @@ See [Measure observability savings](docs/savings/README.md) for a tour of the da
 
 ## Installing the collector on a server
 
-Each release publishes `otelcol-chopper` as `.deb` and `.rpm` packages with a systemd service, as archives for Linux, macOS and Windows, and as a Homebrew cask. The packaged collector runs standalone from `/etc/telemetry-chopper/rules.yaml`, no control plane required:
+One command on Linux or macOS:
 
 ```bash
-VERSION=0.1.0 ARCH=$(dpkg --print-architecture)
-curl -fsSLO "https://github.com/PRIYAM232/telemetry-chopper/releases/download/v${VERSION}/telemetry-chopper_${VERSION}_${ARCH}.deb"
-sudo dpkg -i "telemetry-chopper_${VERSION}_${ARCH}.deb"
+curl -fsSL https://telemetrychopper.com/install.sh | sh
 ```
 
-See [Install the collector](docs/deploy/install-the-collector.md) for RPM, archives, Homebrew, verifying signatures, upgrades and removal.
+On Debian, Ubuntu, RHEL, Fedora and Amazon Linux this installs the `.deb` or `.rpm` package, which runs the collector as a systemd service, standalone from `/etc/telemetry-chopper/rules.yaml`, no control plane required. Elsewhere it installs the binary with a starter config. Every download is checksum-verified.
+
+See [Install the collector](docs/deploy/install-the-collector.md) for manual installs, archives for Windows, Homebrew, verifying signatures, upgrades and removal.
 
 ---
 

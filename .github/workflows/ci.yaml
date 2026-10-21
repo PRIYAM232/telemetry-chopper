@@ -1,6 +1,6 @@
 # Telemetry Chopper CI — validation for pull requests and pushes to main.
 #
-# Seven independent jobs, one per surface:
+# Independent jobs, one per surface:
 #   go              — vet, gofmt, race-enabled tests and govulncheck for
 #                     every Go module: the chopper_filter engine, the
 #                     chopper_datadog_passthrough extension and the sandbox
@@ -12,6 +12,7 @@
 #                     and .rpm, then installs the .deb on the runner and
 #                     checks the service starts; skipped (passes in seconds)
 #                     when a PR doesn't touch the collector or packaging
+#   install-script  — shellcheck and a dry run of the one-line installer
 #   control-plane   — ESLint + Prisma schema validation
 #   control-plane-test — Vitest against a real PostgreSQL service container,
 #                     migrated with `prisma migrate deploy`
@@ -223,6 +224,18 @@ jobs:
           sudo -u telemetry-chopper otelcol-chopper validate --config /etc/telemetry-chopper/config.yaml
           systemctl is-active telemetry-chopper
           sudo dpkg --purge telemetry-chopper
+
+  install-script:
+    name: install.sh (shellcheck + dry run)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # POSIX sh only: the script runs under dash on Debian and busybox sh on
+      # Alpine. shellcheck is preinstalled on the runner.
+      - run: shellcheck -s sh install.sh
+      - name: Dry run against the latest release
+        run: sh install.sh --dry-run
 
   control-plane:
     name: Control plane (lint + Prisma)
