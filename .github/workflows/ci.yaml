@@ -159,6 +159,8 @@ jobs:
   collector-packages:
     name: Collector packages (GoReleaser snapshot)
     runs-on: ubuntu-latest
+    # Five sequential collector builds; generous, but a hung build still ends.
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:
@@ -177,7 +179,9 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --snapshot --clean --skip=sign,sbom
+          # One target at a time, as in release.yaml: parallel collector
+          # builds run the runner out of memory.
+          args: release --snapshot --clean --skip=sign,sbom --parallelism 1
       - name: Packaged config and rules pass validation
         run: |
           tar xzf dist/otelcol-chopper_*_linux_amd64.tar.gz -C "$RUNNER_TEMP"
