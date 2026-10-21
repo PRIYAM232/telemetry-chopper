@@ -35,6 +35,9 @@ data:
         # rest go on to the Datadog Agent (agentPassthrough).
         middlewares:
           - id: chopper_datadog_passthrough
+        # Forward compressed payloads as they came: Datadog's Data Streams
+        # intake rejects uncompressed ones. Tracers don't compress traces.
+        compression_algorithms: []
         {{- end }}
       {{- end }}
 

@@ -372,6 +372,24 @@ func counterPoints(t *testing.T, reader sdkmetric.Reader) map[string]int64 {
 	return out
 }
 
+func TestRewrittenByDecompressor(t *testing.T) {
+	sized := httptest.NewRequest(http.MethodPost, "/v0.1/pipeline_stats", strings.NewReader("x"))
+	chunked := httptest.NewRequest(http.MethodPost, "/v0.1/pipeline_stats", nil)
+	chunked.ContentLength, chunked.TransferEncoding = -1, []string{"chunked"}
+	decompressed := httptest.NewRequest(http.MethodPost, "/v0.1/pipeline_stats", nil)
+	decompressed.ContentLength = -1
+	h2 := httptest.NewRequest(http.MethodPost, "/v0.1/pipeline_stats", nil)
+	h2.ContentLength, h2.ProtoMajor = -1, 2
+	for name, tc := range map[string]struct {
+		r    *http.Request
+		want bool
+	}{"sized": {sized, false}, "chunked": {chunked, false}, "decompressed": {decompressed, true}, "http2": {h2, false}} {
+		if got := rewrittenByDecompressor(tc.r); got != tc.want {
+			t.Errorf("%s: %v, want %v", name, got, tc.want)
+		}
+	}
+}
+
 func TestIsTraceIntake(t *testing.T) {
 	for path, want := range map[string]bool{
 		"/v0.3/traces":                true,

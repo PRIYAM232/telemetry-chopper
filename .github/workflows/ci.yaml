@@ -274,6 +274,7 @@ jobs:
           pass=$(helm template chopper "$chart" --set collector.datadogReceiver.enabled=true \
                    --set collector.datadogReceiver.agentPassthrough.endpoint=http://datadog-agent:8126)
           grep -q -- '- id: chopper_datadog_passthrough' <<<"$pass"
+          grep -q 'compression_algorithms: \[\]' <<<"$pass"
           grep -q 'endpoint: "http://datadog-agent:8126"' <<<"$pass"
           grep -q 'extensions: \[file_storage, chopper_datadog_passthrough\]' <<<"$pass"
           if grep -q chopper_datadog_passthrough <<<"$on" ||
