@@ -31,6 +31,7 @@ Telemetry Chopper measures the bytes and events your rules keep away from your v
 
 ## Deploy Telemetry Chopper
 
+- [Install the collector](deploy/install-the-collector.md): .deb and .rpm packages with a systemd service, archives for Linux, macOS and Windows, and Homebrew.
 - [Sign in, manage operators and review the audit log](deploy/sign-in-and-operators.md): the first sign-in, adding teammates, and who changed what.
 - [Create fleets and rotate fleet keys](deploy/manage-fleets.md): add a fleet for each group of collectors, and replace a key without downtime.
 - [Run gateways in production](deploy/run-gateways-in-production.md): limit memory use and keep queued telemetry across crashes and restarts.

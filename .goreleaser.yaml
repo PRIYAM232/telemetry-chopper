@@ -1,0 +1,192 @@
+# GoReleaser: installable packages of the otelcol-chopper collector.
+#
+# On every v*.*.* tag, .github/workflows/release.yaml runs this to publish a
+# GitHub Release with:
+#   - .deb and .rpm packages (systemd service, /etc/telemetry-chopper/)
+#   - tar.gz archives for Linux and macOS, zip for Windows
+#   - a Homebrew cask, when HOMEBREW_TAP_TOKEN is set
+#   - checksums.txt, signed keylessly with cosign, and an SBOM per archive
+#
+# The collector's main package doesn't exist in the repo: the OpenTelemetry
+# Collector Builder (ocb) generates it into data-plane/dist from
+# builder-config.yaml. The before hooks do that, without compiling, and
+# stamp the release version into it; GoReleaser then cross-compiles.
+#
+# Try it locally (needs `builder`, see `make ocb`):
+#   goreleaser release --snapshot --clean --skip=sign,sbom
+version: 2
+
+project_name: telemetry-chopper
+
+before:
+  hooks:
+    - sh -c "cd data-plane && builder --config builder-config.yaml --skip-compilation"
+    # ocb bakes builder-config.yaml's dist.version into main.go, where it
+    # surfaces as `otelcol-chopper --version` and the service.version
+    # resource attribute. Release builds carry the tag's version instead.
+    - perl -pi -e 's/(Version:\s*)"[^"]*"/${1}"{{ .Version }}"/' data-plane/dist/main.go
+
+builds:
+  - id: otelcol-chopper
+    dir: data-plane/dist
+    main: .
+    binary: otelcol-chopper
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+    goos: [linux, darwin, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: otelcol-chopper
+    ids: [otelcol-chopper]
+    name_template: "otelcol-chopper_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - src: deploy/packaging/config.yaml
+        dst: config.yaml
+      - src: data-plane/config/rules.example.yaml
+        dst: rules.yaml
+      - src: deploy/packaging/README.archive.md
+        dst: README.md
+
+nfpms:
+  - id: telemetry-chopper
+    ids: [otelcol-chopper]
+    package_name: telemetry-chopper
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: Telemetry Chopper
+    homepage: https://github.com/PRIYAM232/telemetry-chopper
+    maintainer: Telemetry Chopper maintainers <https://github.com/PRIYAM232/telemetry-chopper/issues>
+    description: |-
+      OpenTelemetry collector that drops, samples, redacts, routes and
+      rate-limits traces, logs and metrics at the edge, before they reach
+      your observability vendor. Runs standalone from a local rules file.
+    license: Apache-2.0
+    section: net
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    contents:
+      - src: deploy/packaging/telemetry-chopper.service
+        dst: /usr/lib/systemd/system/telemetry-chopper.service
+        file_info:
+          mode: 0644
+      - dst: /etc/telemetry-chopper
+        type: dir
+        file_info:
+          mode: 0750
+          owner: root
+          group: telemetry-chopper
+      # config|noreplace: an upgrade never overwrites files you've edited.
+      - src: deploy/packaging/config.yaml
+        dst: /etc/telemetry-chopper/config.yaml
+        type: config|noreplace
+        file_info:
+          mode: 0640
+          owner: root
+          group: telemetry-chopper
+      - src: data-plane/config/rules.example.yaml
+        dst: /etc/telemetry-chopper/rules.yaml
+        type: config|noreplace
+        file_info:
+          mode: 0640
+          owner: root
+          group: telemetry-chopper
+      - src: deploy/packaging/telemetry-chopper.conf
+        dst: /etc/telemetry-chopper/telemetry-chopper.conf
+        type: config|noreplace
+        file_info:
+          mode: 0640
+          owner: root
+          group: telemetry-chopper
+    scripts:
+      preinstall: deploy/packaging/scripts/preinstall.sh
+      postinstall: deploy/packaging/scripts/postinstall.sh
+      preremove: deploy/packaging/scripts/preremove.sh
+      postremove: deploy/packaging/scripts/postremove.sh
+    # The install scripts use groupadd/useradd: part of the always-installed
+    # passwd package on Debian and Ubuntu, shadow-utils on RPM systems.
+    overrides:
+      rpm:
+        dependencies: [shadow-utils]
+
+homebrew_casks:
+  - name: telemetry-chopper
+    ids: [otelcol-chopper]
+    binaries: [otelcol-chopper]
+    homepage: https://github.com/PRIYAM232/telemetry-chopper
+    description: OpenTelemetry collector that filters telemetry at the edge
+    license: Apache-2.0
+    repository:
+      owner: PRIYAM232
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Publishing needs a token with push access to PRIYAM232/homebrew-tap;
+    # without one, releases still build everything else.
+    # A missing Actions secret arrives as an empty string, so test the
+    # value, not whether the variable exists.
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    caveats: |
+      Start it with the bundled example rules:
+        curl -fsSLO https://raw.githubusercontent.com/PRIYAM232/telemetry-chopper/main/deploy/packaging/config.yaml
+        curl -fsSL -o rules.yaml https://raw.githubusercontent.com/PRIYAM232/telemetry-chopper/main/data-plane/config/rules.example.yaml
+        CHOPPER_RULES_FILE=./rules.yaml otelcol-chopper --config config.yaml
+      Docs: https://github.com/PRIYAM232/telemetry-chopper/blob/main/docs/deploy/install-the-collector.md
+    # The binary isn't notarized; drop the quarantine flag macOS sets on
+    # downloads so it can run.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/otelcol-chopper"]
+          end
+
+checksum:
+  name_template: checksums.txt
+
+# Keyless signing through the workflow's OIDC identity (Sigstore). Verify
+# with `cosign verify-blob` against checksums.txt.sigstore.json; the install
+# docs show the command.
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - --yes
+      - --bundle=${signature}
+      - ${artifact}
+
+sboms:
+  - artifacts: archive
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^Merge pull request"
+      - "^Merge branch"
+
+release:
+  github:
+    owner: PRIYAM232
+    name: telemetry-chopper
+  prerelease: auto
+  footer: |
+    **Install:** see [Install the collector](https://github.com/PRIYAM232/telemetry-chopper/blob/main/docs/deploy/install-the-collector.md).
+    Container images and the Helm chart for this release are on GHCR under `ghcr.io/priyam232/telemetry-chopper`.

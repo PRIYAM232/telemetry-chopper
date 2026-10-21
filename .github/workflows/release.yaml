@@ -8,6 +8,10 @@
 #   ghcr.io/<owner>/<repo>/otelcol-chopper          (custom collector distro)
 #   oci://ghcr.io/<owner>/charts/telemetry-chopper  (Helm chart, OCI registry)
 #
+# and a GitHub Release with the collector as installable packages (.deb,
+# .rpm, tar.gz/zip archives, Homebrew cask), built by GoReleaser from
+# .goreleaser.yaml, with cosign-signed checksums and SBOMs.
+#
 # Auth is the workflow's own GITHUB_TOKEN via `packages: write` — no PAT to
 # provision or rotate. Images are tagged with the full semver, the minor
 # line (1.2), and latest; the chart version/appVersion are stamped from the
@@ -29,6 +33,9 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
+  # Same pins as ci.yaml.
+  OCB_VERSION: v0.156.0
+  GOVULNCHECK_VERSION: v1.8.0
 
 jobs:
   images:
@@ -144,3 +151,46 @@ jobs:
             --app-version "$VERSION" \
             --destination dist/
           helm push "dist/telemetry-chopper-${VERSION}.tgz" "oci://${REGISTRY}/${OWNER}/charts"
+
+  collector-packages:
+    name: Collector packages (GoReleaser)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release and upload its assets
+      id-token: write # keyless cosign signing of checksums.txt
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # GoReleaser builds the changelog from history
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+          cache-dependency-path: data-plane/processors/filterprocessor/go.sum
+
+      - name: Install OpenTelemetry Collector Builder
+        run: go install go.opentelemetry.io/collector/cmd/builder@${{ env.OCB_VERSION }}
+
+      # Same gate as the images' Trivy scan: a binary with a reachable
+      # vulnerability is never released. Source mode on the ocb-generated
+      # module, as in ci.yaml.
+      - name: govulncheck (collector distro)
+        run: |
+          (cd data-plane && builder --config builder-config.yaml --skip-compilation)
+          go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
+          cd data-plane/dist && govulncheck ./...
+
+      - uses: sigstore/cosign-installer@v3
+      - uses: anchore/sbom-action/download-syft@v0
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional: a token that can push to PRIYAM232/homebrew-tap. Without
+          # it the Homebrew cask is skipped and everything else still ships.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}

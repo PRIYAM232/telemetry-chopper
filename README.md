@@ -235,6 +235,20 @@ See [Measure observability savings](docs/savings/README.md) for a tour of the da
 
 ---
 
+## Installing the collector on a server
+
+Each release publishes `otelcol-chopper` as `.deb` and `.rpm` packages with a systemd service, as archives for Linux, macOS and Windows, and as a Homebrew cask. The packaged collector runs standalone from `/etc/telemetry-chopper/rules.yaml`, no control plane required:
+
+```bash
+VERSION=0.1.0 ARCH=$(dpkg --print-architecture)
+curl -fsSLO "https://github.com/PRIYAM232/telemetry-chopper/releases/download/v${VERSION}/telemetry-chopper_${VERSION}_${ARCH}.deb"
+sudo dpkg -i "telemetry-chopper_${VERSION}_${ARCH}.deb"
+```
+
+See [Install the collector](docs/deploy/install-the-collector.md) for RPM, archives, Homebrew, verifying signatures, upgrades and removal.
+
+---
+
 ## Deploying to Kubernetes
 
 The [`telemetry-chopper` Helm chart](deploy/helm/README.md) packages the same stack for Kubernetes — StatefulSet PostgreSQL, migration Job as a Helm hook, Control Plane and collector Deployments, plus optional self-monitoring:

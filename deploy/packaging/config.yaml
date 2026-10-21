@@ -1,0 +1,80 @@
+# Telemetry Chopper collector — packaged configuration.
+#
+# Installed as /etc/telemetry-chopper/config.yaml by the .deb and .rpm
+# packages, and shipped as config.yaml in the release archives.
+#
+# Rules live in a separate file (rules_file below). Edit it and the change
+# applies within a few seconds, without a restart; an invalid edit is logged
+# and the previous rules stay in force. Rules reference:
+# https://github.com/PRIYAM232/telemetry-chopper/blob/main/docs/rules/rules-file.md
+#
+# After editing THIS file, check it and reload:
+#   otelcol-chopper validate --config /etc/telemetry-chopper/config.yaml
+#   sudo systemctl reload telemetry-chopper
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Sheds load before the process runs out of memory. Keep it first.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+
+  chopper_filter:
+    # CHOPPER_RULES_FILE overrides the path, e.g. to run from an extracted
+    # archive: CHOPPER_RULES_FILE=./rules.yaml ./otelcol-chopper --config config.yaml
+    rules_file: ${env:CHOPPER_RULES_FILE:-/etc/telemetry-chopper/rules.yaml}
+    rules_file_check_interval: 5s
+
+exporters:
+  # Prints a one-line summary per batch (to the journal when run as a
+  # service) so you can see telemetry arriving and being filtered. Replace
+  # it with your backend, for example:
+  #
+  #   otlp_grpc:
+  #     endpoint: otel-backend.example.com:4317
+  #   otlp_http:
+  #     endpoint: https://otlp.vendor.example.com
+  #     headers:
+  #       api-key: ${env:VENDOR_API_KEY}
+  #
+  # and list it under each pipeline's exporters below. Secrets such as
+  # VENDOR_API_KEY can go in /etc/telemetry-chopper/telemetry-chopper.conf.
+  debug:
+    verbosity: basic
+
+service:
+  telemetry:
+    metrics:
+      level: normal
+      # Self-metrics, including per-rule match and drop counts
+      # (otelcol_chopper_filter_rule_*), on http://127.0.0.1:8888/metrics.
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 8888
+                without_scope_info: true
+                without_type_suffix: true
+                without_units: true
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, chopper_filter]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, chopper_filter]
+      exporters: [debug]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, chopper_filter]
+      exporters: [debug]
