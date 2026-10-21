@@ -155,6 +155,8 @@ jobs:
   collector-packages:
     name: Collector packages (GoReleaser)
     runs-on: ubuntu-latest
+    # Five sequential collector builds; generous, but a hung build still ends.
+    timeout-minutes: 75
     permissions:
       contents: write # create the GitHub Release and upload its assets
       id-token: write # keyless cosign signing of checksums.txt
@@ -188,7 +190,10 @@ jobs:
         with:
           distribution: goreleaser
           version: "~> v2"
-          args: release --clean
+          # One target at a time: with the Datadog receiver compiled in, four
+          # parallel collector builds exhaust the runner's memory and the
+          # job dies silently mid-build.
+          args: release --clean --parallelism 1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Optional: a token that can push to PRIYAM232/homebrew-tap. Without
