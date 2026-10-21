@@ -4,11 +4,13 @@
 // commitment and cloud egress forms.
 //
 // Same trust model as the dashboard's rule actions (see
-// src/app/dashboard/actions.ts): no operator auth yet, so when it lands this
-// action must verify the session before writing.
+// src/app/dashboard/actions.ts): every action checks the operator's session
+// first and records what it saved in the audit trail.
 
 import { revalidatePath } from "next/cache";
 import { ObservabilityVendor } from "@/generated/prisma/enums";
+import { AuditAction, recordAudit } from "@/lib/audit";
+import { requireOperator } from "@/lib/auth";
 import { saveEgressConfig } from "@/lib/egress";
 import { saveCommitment } from "@/lib/overage";
 import { saveRateCard } from "@/lib/pricing";
@@ -37,6 +39,7 @@ export async function savePricing(
   _prev: SavePricingState,
   formData: FormData,
 ): Promise<SavePricingState> {
+  const operator = await requireOperator();
   const fleetId = formString(formData, "fleetId");
   const vendor = formString(formData, "vendor");
   const customVendorName = formString(formData, "customVendorName");
@@ -58,8 +61,9 @@ export async function savePricing(
     ["tracesPricePerGb", "trace ingest", "per GB", "0.10"],
     ["logsPricePerGb", "log ingest", "per GB", "0.10"],
     ["metricsPricePerGb", "metric ingest", "per GB", "0.10"],
-    ["tracesIndexPricePerMillion", "indexed span", "per million events", "1.70"],
-    ["logsIndexPricePerMillion", "indexed log event", "per million events", "1.70"],
+    ["tracesIndexPricePerMillion", "indexed span", "per million events", "2.04"],
+    ["logsIndexPricePerMillion", "indexed log event", "per million events", "2.04"],
+    ["metricsPricePer100Series", "metric series", "per 100 series per month", "5.00"],
   ] as const) {
     const raw = formString(formData, key).replace(/^\$/, "");
     if (!PRICE_RE.test(raw)) {
@@ -70,7 +74,35 @@ export async function savePricing(
     prices[key] = Number(raw);
   }
 
-  await saveRateCard(fleetId, {
+  // Indexed shares: percent of ingested events the vendor indexes,
+  // NUMERIC(5, 2) in [0, 100]. Blank reads as 100.
+  const shares: Record<string, number> = {};
+  for (const [key, label] of [
+    ["tracesIndexedSharePct", "share of spans indexed"],
+    ["logsIndexedSharePct", "share of log events indexed"],
+  ] as const) {
+    const raw = (formString(formData, key) || "100").replace(/%$/, "");
+    const value = Number(raw);
+    if (!/^\d{1,3}(\.\d{1,2})?$/.test(raw) || value > 100) {
+      return fail(`${label} must be a percentage from 0 to 100 with at most 2 decimal places, e.g. 5`);
+    }
+    shares[key] = value;
+  }
+
+  // Monthly span allowance: NUMERIC(14, 3), in GB and millions of spans.
+  const allowance: Record<string, number> = {};
+  for (const [key, label, example] of [
+    ["tracesIncludedGbPerMonth", "included ingested span GB per month", "150"],
+    ["tracesIncludedIndexedMillionsPerMonth", "included indexed spans, in millions per month", "1"],
+  ] as const) {
+    const raw = formString(formData, key) || "0";
+    if (!/^\d{1,11}(\.\d{1,3})?$/.test(raw)) {
+      return fail(`${label} must be a number with at most 3 decimal places, e.g. ${example}`);
+    }
+    allowance[key] = Number(raw);
+  }
+
+  const rateCard = {
     vendor: vendorValue,
     customVendorName: customVendorName || null,
     tracesPricePerGb: prices.tracesPricePerGb,
@@ -78,7 +110,14 @@ export async function savePricing(
     metricsPricePerGb: prices.metricsPricePerGb,
     tracesIndexPricePerMillion: prices.tracesIndexPricePerMillion,
     logsIndexPricePerMillion: prices.logsIndexPricePerMillion,
-  });
+    metricsPricePer100Series: prices.metricsPricePer100Series,
+    tracesIncludedGbPerMonth: allowance.tracesIncludedGbPerMonth,
+    tracesIncludedIndexedMillionsPerMonth: allowance.tracesIncludedIndexedMillionsPerMonth,
+    tracesIndexedSharePct: shares.tracesIndexedSharePct,
+    logsIndexedSharePct: shares.logsIndexedSharePct,
+  };
+  await saveRateCard(fleetId, rateCard);
+  await recordAudit({ operator, action: AuditAction.RATE_CARD_UPDATED, fleetId, details: rateCard });
 
   revalidatePath("/settings/pricing");
   revalidatePath("/dashboard");
@@ -95,6 +134,7 @@ export async function saveCommitmentAction(
   _prev: SaveCommitmentState,
   formData: FormData,
 ): Promise<SaveCommitmentState> {
+  const operator = await requireOperator();
   const fleetId = formString(formData, "fleetId");
   const committedRaw = formString(formData, "committedGbPerMonth").replace(/,/g, "");
   const multiplierRaw = formString(formData, "overageMultiplier").replace(/x$/i, "");
@@ -118,11 +158,13 @@ export async function saveCommitmentAction(
     return fail("billing cycle day must be a whole number from 1 to 28");
   }
 
-  await saveCommitment(fleetId, {
+  const commitment = {
     committedGbPerMonth: Number(committedRaw),
     overageMultiplier,
     billingCycleDay,
-  });
+  };
+  await saveCommitment(fleetId, commitment);
+  await recordAudit({ operator, action: AuditAction.COMMITMENT_UPDATED, fleetId, details: commitment });
 
   revalidatePath("/settings/pricing");
   revalidatePath("/dashboard");
@@ -138,6 +180,7 @@ export async function saveEgressAction(
   _prev: SaveEgressState,
   formData: FormData,
 ): Promise<SaveEgressState> {
+  const operator = await requireOperator();
   const fleetId = formString(formData, "fleetId");
   // An unchecked checkbox is simply absent from the form data.
   const enabled = formData.get("enabled") === "on";
@@ -157,11 +200,9 @@ export async function saveEgressAction(
     return fail("compression ratio must be between 1 (uncompressed) and 100");
   }
 
-  await saveEgressConfig(fleetId, {
-    enabled,
-    pricePerGb: Number(priceRaw),
-    compressionRatio,
-  });
+  const egress = { enabled, pricePerGb: Number(priceRaw), compressionRatio };
+  await saveEgressConfig(fleetId, egress);
+  await recordAudit({ operator, action: AuditAction.EGRESS_UPDATED, fleetId, details: egress });
 
   revalidatePath("/settings/pricing");
   revalidatePath("/dashboard");

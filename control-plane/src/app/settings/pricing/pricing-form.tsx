@@ -111,7 +111,8 @@ export function PricingForm({
         </div>
         <p className="text-xs text-zinc-500 dark:text-zinc-400">
           Use the rate from your contract. A signal your vendor doesn&apos;t bill
-          per GB (metrics are often billed per series) can be set to 0.
+          per GB can be set to 0. If your vendor bills metrics per series, as
+          Datadog does, set metrics to 0 here and use the series price below.
         </p>
       </fieldset>
 
@@ -131,7 +132,7 @@ export function PricingForm({
                   required
                   inputMode="decimal"
                   pattern="\d{1,6}(\.\d{1,4})?"
-                  title="USD per million indexed events, up to 4 decimal places (e.g. 1.70)"
+                  title="USD per million indexed events, up to 4 decimal places (e.g. 2.04)"
                   defaultValue={String(card[f.key])}
                   className={`${inputClass} pl-7 tabular-nums`}
                 />
@@ -144,6 +145,98 @@ export function PricingForm({
           pricing). Dropped records save both ingest and indexing; records an
           EXCLUDE_INDEX rule keeps out of the index save indexing only. Leave 0 if your
           vendor doesn&apos;t bill indexing separately.
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {(
+            [
+              ["tracesIndexedSharePct", "Spans indexed, %"],
+              ["logsIndexedSharePct", "Log events indexed, %"],
+            ] as const
+          ).map(([name, label]) => (
+            <Field key={name} label={label}>
+              <input
+                name={name}
+                inputMode="decimal"
+                pattern="\d{1,3}(\.\d{1,2})?"
+                title="Percent of ingested events your vendor indexes, from 0 to 100 (e.g. 5)"
+                defaultValue={String(card[name])}
+                className={`${inputClass} tabular-nums`}
+              />
+            </Field>
+          ))}
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          The share of ingested events your vendor would index without Telemetry Chopper.
+          Datadog indexes spans only through retention filters, usually a small sample:
+          divide <code>datadog.estimated_usage.apm.indexed_spans</code> by{" "}
+          <code>datadog.estimated_usage.apm.ingested_spans</code> over a month. Logs are
+          usually 100% unless index exclusion filters already drop some.
+          Dropped and excluded events save indexing only at this rate.
+        </p>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3">
+        <legend className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          Metric series price, USD per 100 series per month
+        </legend>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Metric series">
+            <div className="relative">
+              <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-sm text-zinc-400">
+                $
+              </span>
+              <input
+                name="metricsPricePer100Series"
+                required
+                inputMode="decimal"
+                pattern="\d{1,6}(\.\d{1,4})?"
+                title="USD per 100 metric series per month, up to 4 decimal places (e.g. 5.00)"
+                defaultValue={String(card.metricsPricePer100Series)}
+                className={`${inputClass} pl-7 tabular-nums`}
+              />
+            </div>
+          </Field>
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          For vendors that bill custom metrics by series (a metric name plus one
+          combination of tag values) instead of by volume, such as Datadog. A series
+          your rules drop entirely saves its share of this price for every hour it
+          stays dropped. Leave 0 if your vendor doesn&apos;t bill metrics by series.
+        </p>
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-3">
+        <legend className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+          Included span allowance per month
+        </legend>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Field label="Ingested spans, GB">
+            <input
+              name="tracesIncludedGbPerMonth"
+              inputMode="decimal"
+              pattern="\d{1,11}(\.\d{1,3})?"
+              title="GB of ingested spans included per month, up to 3 decimal places (e.g. 1500)"
+              defaultValue={String(card.tracesIncludedGbPerMonth)}
+              className={`${inputClass} tabular-nums`}
+            />
+          </Field>
+          <Field label="Indexed spans, millions">
+            <input
+              name="tracesIncludedIndexedMillionsPerMonth"
+              inputMode="decimal"
+              pattern="\d{1,11}(\.\d{1,3})?"
+              title="Millions of indexed spans included per month, up to 3 decimal places (e.g. 10)"
+              defaultValue={String(card.tracesIncludedIndexedMillionsPerMonth)}
+              className={`${inputClass} tabular-nums`}
+            />
+          </Field>
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          Span volume your plan includes each month before ingest and indexing are
+          billed. Datadog includes 150 GB of ingested spans and 1 million indexed spans
+          per APM host (30 GB and 195,000 per Fargate task), pooled across your account:
+          with 10 APM hosts, enter 1500 and 10. Dropped spans only save money above the
+          allowance. Leave 0 if your plan has none.
         </p>
       </fieldset>
 

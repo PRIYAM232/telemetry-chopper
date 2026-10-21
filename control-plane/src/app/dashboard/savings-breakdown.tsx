@@ -1,8 +1,10 @@
 // The dashboard's savings breakdown: savings for the selected window split by what each
 // dollar pays for — vendor ingest (bytes the vendor never received), vendor
-// indexing (events the vendor never indexed) and, when enabled, cloud egress
-// (bytes that never left the network) — as a proportional bar with direct
-// labels and a per-signal table. Server-rendered; refreshes with the page.
+// indexing (events the vendor never indexed), metric series (series a
+// series-billing vendor never counted, when the rate card prices them) and,
+// when enabled, cloud egress (bytes that never left the network) — as a
+// proportional bar with direct labels and a per-signal table.
+// Server-rendered; refreshes with the page.
 //
 // Segment colors are the reference data-viz palette's categorical slots in
 // fixed order (blue, orange, aqua), each with its own dark-mode step. Text
@@ -11,9 +13,11 @@
 import Link from "next/link";
 import { formatBytes, formatUSD } from "@/lib/format";
 import { computeEgressSavings, type EgressConfig, type EgressSavings } from "@/lib/egress";
-import type { RateCard, Savings } from "@/lib/pricing";
+import { HOURS_PER_BILLING_MONTH, type RateCard, type Savings } from "@/lib/pricing";
+import { hasSpanAllowance } from "@/lib/span-allowance";
 
 const integerFmt = new Intl.NumberFormat("en-US");
+const seriesFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
 
 type Segment = {
   key: string;
@@ -48,6 +52,7 @@ export function SavingsBreakdown({
 }) {
   const indexingPriced =
     rateCard.tracesIndexPricePerMillion > 0 || rateCard.logsIndexPricePerMillion > 0;
+  const seriesPriced = rateCard.metricsPricePer100Series > 0;
 
   const segments: Segment[] = [
     {
@@ -64,11 +69,24 @@ export function SavingsBreakdown({
       label: "Indexing savings",
       usd: savings.indexing.total,
       detail: indexingPriced
-        ? `${integerFmt.format(savings.indexing.droppedEvents)} dropped + ${integerFmt.format(savings.indexing.unindexedEvents)} excluded events never indexed`
+        ? `${integerFmt.format(savings.indexing.droppedEvents)} dropped + ${integerFmt.format(savings.indexing.unindexedEvents)} excluded events never indexed` +
+          (rateCard.tracesIndexedSharePct < 100 || rateCard.logsIndexedSharePct < 100
+            ? `, priced at the share your vendor indexes (spans ${seriesFmt.format(rateCard.tracesIndexedSharePct)}%, logs ${seriesFmt.format(rateCard.logsIndexedSharePct)}%)`
+            : "")
         : "Not priced: your rate card has no indexing price",
       swatch: "bg-[#eb6834] dark:bg-[#d95926]",
     },
   ];
+  if (seriesPriced) {
+    segments.push({
+      key: "series",
+      payee: "Observability vendor",
+      label: "Metric series savings",
+      usd: savings.series.total,
+      detail: `${integerFmt.format(savings.series.seriesHours)} series-hours never counted, about ${seriesFmt.format(savings.series.seriesHours / HOURS_PER_BILLING_MONTH)} series for a full month`,
+      swatch: "bg-[#7d5bd6] dark:bg-[#8f70e8]",
+    });
+  }
   if (egress.enabled) {
     segments.push({
       key: "egress",
@@ -80,14 +98,14 @@ export function SavingsBreakdown({
     });
   }
   const total = segments.reduce((sum, s) => sum + s.usd, 0);
-  const vendorTotal = savings.ingest.total + savings.indexing.total;
+  const vendorTotal = savings.ingest.total + savings.indexing.total + savings.series.total;
 
   const b = savings.droppedBytesBySignal;
   const egressFor = (bytes: number) => computeEgressSavings(bytes, egressConfig).usd;
   const rows = [
-    { label: "Spans", ingest: savings.ingest.traces, indexing: savings.indexing.traces as number | null, egress: egressFor(b.traces) },
-    { label: "Logs", ingest: savings.ingest.logs, indexing: savings.indexing.logs as number | null, egress: egressFor(b.logs) },
-    { label: "Metrics", ingest: savings.ingest.metrics, indexing: null, egress: egressFor(b.metrics) },
+    { label: "Spans", ingest: savings.ingest.traces, indexing: savings.indexing.traces as number | null, series: null as number | null, egress: egressFor(b.traces) },
+    { label: "Logs", ingest: savings.ingest.logs, indexing: savings.indexing.logs as number | null, series: null as number | null, egress: egressFor(b.logs) },
+    { label: "Metrics", ingest: savings.ingest.metrics, indexing: null, series: savings.series.total as number | null, egress: egressFor(b.metrics) },
   ];
 
   return (
@@ -130,7 +148,11 @@ export function SavingsBreakdown({
             ))}
       </div>
 
-      <dl className={`mt-4 grid grid-cols-1 gap-4 ${segments.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
+      <dl
+        className={`mt-4 grid grid-cols-1 gap-4 ${
+          segments.length === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : segments.length === 3 ? "sm:grid-cols-3" : "sm:grid-cols-2"
+        }`}
+      >
         {segments.map((s) => (
           <div key={s.key}>
             <dt className="text-sm text-zinc-500 dark:text-zinc-400">
@@ -168,6 +190,15 @@ export function SavingsBreakdown({
         ))}
       </dl>
 
+      {hasSpanAllowance(rateCard) && (
+        <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
+          Span savings count only usage above your monthly allowance of{" "}
+          {seriesFmt.format(rateCard.tracesIncludedGbPerMonth)} GB ingested and{" "}
+          {seriesFmt.format(rateCard.tracesIncludedIndexedMillionsPerMonth)} million indexed spans, worked out for each
+          billing month and shared across it by when spans were dropped.
+        </p>
+      )}
+
       {!egress.enabled && (
         <p className="mt-3 text-xs text-zinc-400 dark:text-zinc-500">
           Cloud egress savings are off.{" "}
@@ -187,6 +218,7 @@ export function SavingsBreakdown({
             <th className="py-1 font-medium">Signal</th>
             <th className="py-1 text-right font-medium">Ingest</th>
             <th className="py-1 text-right font-medium">Indexing</th>
+            {seriesPriced && <th className="py-1 text-right font-medium">Series</th>}
             {egress.enabled && <th className="py-1 text-right font-medium">Egress</th>}
             <th className="py-1 text-right font-medium">Total</th>
           </tr>
@@ -199,9 +231,14 @@ export function SavingsBreakdown({
               <td className="py-1.5 text-right" title={r.indexing === null ? "Metrics aren't indexed events" : undefined}>
                 {r.indexing === null ? "—" : formatUSD(r.indexing)}
               </td>
+              {seriesPriced && (
+                <td className="py-1.5 text-right" title={r.series === null ? "Only metrics are billed by series" : undefined}>
+                  {r.series === null ? "—" : formatUSD(r.series)}
+                </td>
+              )}
               {egress.enabled && <td className="py-1.5 text-right">{formatUSD(r.egress)}</td>}
               <td className="py-1.5 text-right">
-                {formatUSD(r.ingest + (r.indexing ?? 0) + (egress.enabled ? r.egress : 0))}
+                {formatUSD(r.ingest + (r.indexing ?? 0) + (r.series ?? 0) + (egress.enabled ? r.egress : 0))}
               </td>
             </tr>
           ))}

@@ -58,7 +58,7 @@ The first run fetches the demo at its pinned release into `deploy/pilot/.demo/`,
 | Astronomy Shop | http://localhost:8180 |
 | Load generator (Locust) | http://localhost:8180/loadgen/ |
 | Feature flags (flagd UI) | http://localhost:8180/feature |
-| Telemetry Chopper dashboard | http://localhost:3300/dashboard |
+| Telemetry Chopper dashboard | http://localhost:3300/dashboard (sign in as `admin@localhost` / `chopper-admin-dev`, then choose a new password) |
 | Grafana | http://localhost:3301 (no login) |
 | Prometheus | http://localhost:9390 |
 
@@ -155,6 +155,21 @@ From a run on an 8-core, 16 GB laptop (Docker given 8 GB), with 10 Locust users 
 | Control plane down 90 s | Rules and drop rates unchanged throughout. Gateways' own counters showed 8,919 spans dropped and the control plane stored 9,169; the difference is where the window boundaries fall. |
 | Flood (2× traffic) | 250 spans/s and 53 logs/s at 0.1 cores and 110 MB per gateway; zero export failures. |
 
+### Rerun after the fixes (October 18, 2026)
+
+Run after issues #45 to #48 were fixed, with the same eight rules, except that the sampling rule applies to **Whole traces** with no condition. A ninth rule marked `log.severity_number LESS_THAN 13` with EXCLUDE_INDEX. Docker was sharing its 8 cores with two idle local Kubernetes clusters using about 2 cores, so the demo's own services slowed at times.
+
+| Test | Before the fixes | After the fixes |
+|---|---|---|
+| Trace integrity (sampling) | 17 of 60 traces had orphaned spans with a `service.namespace` condition | 0 of 60, sampling whole traces. Adding the old span-scoped rule back shows **misses 14% of spans · may break traces** on its card. |
+| Spans dropped, steady state | 74–79% | 76–80%; per-rule drops add up exactly to **Telemetry dropped** (30,448 = 30,448) |
+| PII | Masked | Masked: every trace after the rules has `[REDACTED]` email and CVV and `[REDACTED_PATTERN]` plus the last 4 card digits |
+| INFO-and-below logs, across SDKs | `EQUALS INFO` missed `info` and `Information` | `log.severity_number LESS_THAN 13` marked all `info` (426/426) and `Information` (140/140) logs and 634 of 641 `INFO` logs. The 7 others came from `email`, which sends severity text but no severity number. |
+| Gateway crash while Tempo is down | Queued data lost | Gateway-2 held 134 batches for Tempo when SIGKILLed, reloaded them from disk on restart and delivered them once Tempo was back, with no send failures |
+| Flood (2× traffic) | 110 MB per gateway, no export failures | 229 spans/s at 75–82 MB per gateway (soft limit 165 MB), no refusals, no export failures |
+| THROTTLE 2/s on frontend-proxy logs, two gateways | 2.9/s reached Loki | Fleet-wide: 1.18/s with the default 1 s burst; **1.98/s** with a 5 s burst |
+| Control plane down 90 s | Rules kept, backlog sent after restart | Same: drop rate held at 77%, and the first heartbeats after restart carried about 9 intervals of counts each |
+
 ## What this rehearsal found
 
 These are things a pilot customer would hit. Plan for them before the pilot.
@@ -164,7 +179,9 @@ These are things a pilot customer would hit. Plan for them before the pilot.
 3. **Severity text varies by SDK.** The same level arrives as `INFO`, `info` and `Information`. A rule on `log.severity EQUALS INFO` misses two of them. Fixed in [issue #47](https://github.com/PRIYAM232/telemetry-chopper/issues/47): select **Ignore case**, or match `log.severity_number`, which every SDK sets the same way.
 4. **No persistent queue or memory limiter in the gateway build** (fixed in [issue #48](https://github.com/PRIYAM232/telemetry-chopper/issues/48)). The distribution lacked `memory_limiter` and `file_storage`, so a crashed gateway lost what it held in memory, and nothing shed load before the process ran out of memory. The gateways now run `memory_limiter` first and keep their exporter queues on disk. See [Run gateways in production](../../docs/deploy/run-gateways-in-production.md). Production agents should still keep their own retry queues (this environment's agent does).
 5. **Alert on healthy replica count, not `up == 0`.** With DNS or Kubernetes service discovery, a crashed gateway disappears from Prometheus's target list instead of reporting `up = 0`, so the obvious "gateway down" alert never fires. [`backends/alerts.yml`](backends/alerts.yml) counts healthy replicas instead.
-6. **Backend mapping problems look like gateway export failures.** Prometheus rejected container metrics until resource attributes were promoted to labels; Loki rejected large collector error logs until its structured-metadata limit was raised. Neither was a Telemetry Chopper problem, but both appeared as gateway export failures. Check the backend's own error before blaming the gateway.
+6. **Some SDKs send severity text without a severity number.** In the rerun, `email` (Ruby) sent `INFO` with no severity number, so `log.severity_number` rules skip it. To catch every service, pair the severity-number rule with a `log.severity` rule using **Ignore case**.
+7. **A CPU-starved control plane can time out heartbeats.** With Docker's CPU saturated, the control plane briefly failed to start database transactions (`Unable to start a transaction in the given time`). Collectors kept their counts and resent them, so nothing was lost, and each heartbeat now writes in a single transaction to need fewer connections. Give the control plane and its database CPU headroom.
+8. **Backend mapping problems look like gateway export failures.** Prometheus rejected container metrics until resource attributes were promoted to labels; Loki rejected large collector error logs until its structured-metadata limit was raised. Neither was a Telemetry Chopper problem, but both appeared as gateway export failures. Check the backend's own error before blaming the gateway.
 
 ## Troubleshooting
 

@@ -49,6 +49,11 @@ services:
     container_name: chopper-control-plane
     environment:
       DATABASE_URL: postgresql://chopper:chopper@postgres:5432/chopper_control?schema=public
+      # The first operator, created on the first sign-in to an empty
+      # database (they must choose a new password then). Ignored once any
+      # operator exists. Override both for anything beyond local evaluation.
+      CHOPPER_ADMIN_EMAIL: ${CHOPPER_ADMIN_EMAIL:-admin@localhost}
+      CHOPPER_ADMIN_PASSWORD: ${CHOPPER_ADMIN_PASSWORD:-chopper-admin-dev}
     ports:
       - "3000:3000" # dashboard + policy/stats APIs
     depends_on:

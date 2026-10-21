@@ -13,6 +13,9 @@ Dashboard (policy/stats APIs on the same port):
   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ .Release.Name }}-control-plane {{ .Values.controlPlane.service.port }}:{{ .Values.controlPlane.service.port }}
   open http://localhost:{{ .Values.controlPlane.service.port }}/dashboard
 
+Sign in as {{ .Values.controlPlane.admin.email }} (you choose a new password on first sign-in):
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Values.controlPlane.admin.existingSecret | default (printf "%s-admin" .Release.Name) }} -o jsonpath='{.data.CHOPPER_ADMIN_PASSWORD}' | base64 -d; echo
+
 Send OTLP telemetry (in-cluster endpoints):
   grpc: {{ .Release.Name }}-collector.{{ .Release.Namespace }}.svc:4317
   http: {{ .Release.Name }}-collector.{{ .Release.Namespace }}.svc:4318
@@ -24,8 +27,11 @@ Smoke test from your machine:
 
 Scale the data plane:
   helm upgrade {{ .Release.Name }} deploy/helm/telemetry-chopper -n {{ .Release.Namespace }} --reuse-values --set collector.replicas=3
-{{- if .Values.fleet.key | hasPrefix "chopper_dev_sk_" }}
+{{- if and (not .Values.fleet.existingSecret) (.Values.fleet.key | hasPrefix "chopper_dev_sk_") }}
 
-NOTE: this release uses the deterministic LOCAL DEV fleet credentials
-provisioned by the seed. Rotate fleet.id / fleet.key for any real deployment.
+NOTE: collectors use the LOCAL DEV fleet's key, which is published in the
+Telemetry Chopper repository. For any real deployment, create a fleet (or
+rotate this one's key) on the console's Fleets page, then:
+  helm upgrade {{ .Release.Name }} deploy/helm/telemetry-chopper -n {{ .Release.Namespace }} --reuse-values \
+    --set fleet.id=<fleet-id> --set fleet.key=<fleet-key>
 {{- end }}

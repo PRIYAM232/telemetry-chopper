@@ -1,11 +1,40 @@
 # Release notes
 
-## October 18, 2026
+## October 20, 2026
 
 ### New
 
 - **Standalone mode with a rules file.** The collector can read its rules from a YAML file instead of the control plane, so a single `otelcol-chopper` filters telemetry on its own. Edits apply within seconds without a restart, `otelcol-chopper validate` checks the file, and a broken edit keeps the previous rules. See [Run without the control plane](rules/rules-file.md).
 - **Installable collector packages.** Each release now publishes `otelcol-chopper` as `.deb` and `.rpm` packages that install a hardened systemd service with config and rules in `/etc/telemetry-chopper/`, as archives for Linux, macOS and Windows, and as a Homebrew cask, with Sigstore-signed checksums and SBOMs. See [Install the collector](deploy/install-the-collector.md).
+- **Traces from Datadog tracing libraries.** `otelcol-chopper` now includes a Datadog receiver. Services instrumented with Datadog's tracing libraries can send traces to the collector on port 8126, and your rules apply to them like OpenTelemetry spans. A transform step keeps their operation and resource names in Datadog APM. In the Helm chart, set `collector.datadogReceiver.enabled`. See [Filter traces from Datadog tracing libraries](deploy/datadog-tracing-libraries.md).
+- **Datadog Agent passthrough.** Datadog tracing libraries send more than traces to port 8126: Continuous Profiler profiles, Data Streams Monitoring, Dynamic Instrumentation, remote configuration and instrumentation telemetry. The Datadog receiver discards those. The new `chopper_datadog_passthrough` extension forwards them to a real Datadog Agent, and tells tracers those features are available, so services keep them when they send traces through Telemetry Chopper. Traces still go through your rules, and an Agent outage doesn't affect them. In the Helm chart, set `collector.datadogReceiver.agentPassthrough.endpoint` to the Agent's trace port. In your own configuration, also set `compression_algorithms: []` on the datadog receiver so compressed payloads, such as Data Streams Monitoring's, reach the Agent as the tracer sent them. See [Keep profiles and other Datadog features](deploy/datadog-tracing-libraries.md#keep-profiles-and-other-datadog-features).
+- **Helm hot backend.** `collector.hotBackend.otlp.endpoint` sends what your rules keep to an OTLP gRPC endpoint, such as a Datadog Agent, instead of the `debug` exporter.
+- The Datadog test harness sends traces with Datadog's Python tracing library: `run.sh send-ddtrace`. `run.sh send-ddextras` runs the profiler, Data Streams Monitoring, remote configuration and telemetry through the Agent passthrough.
+- The Datadog test harness has a direct mode: with `DD_INTAKE=direct`, the collector sends straight to Datadog's OTLP intake with your API key, and no Datadog Agent runs. See [Direct mode](../deploy/datadog/README.md#direct-mode-no-datadog-agent).
+- **Fleets page.** Create a fleet for each group of collectors that should run different rules, such as each environment or region, from the new **Fleets** page. Each fleet gets its own key, shown once when it's created. See [Create fleets and rotate fleet keys](deploy/manage-fleets.md).
+- **Fleet key rotation.** Replace a fleet's key from the **Fleets** page. Choose whether the old key stops working immediately or after 1 hour, 24 hours or 7 days, and see how many online collectors still use it. **Revoke now** ends the grace period early. See [Rotate a fleet key](deploy/manage-fleets.md#rotate-a-fleet-key).
+- **Fleet picker.** With more than one fleet, pick which one the **Dashboard** and **Pricing** pages show from the menu next to the fleet name.
+- The audit log records fleets created, keys rotated and previous keys revoked.
+- **Indexed share.** Enter the share of spans and log events your vendor actually indexes on the **Pricing** page. Datadog indexes spans only through retention filters, often a small sample, so indexing savings for dropped spans were overstated. Indexing savings are now multiplied by the share. Existing rate cards keep 100%, so their savings don't change. See [Indexed share](savings/configure-vendor-pricing.md#indexed-share).
+- **Span allowances.** Enter the span volume your plan includes each month, such as Datadog's 150 GB of ingested spans and 1 million indexed spans per APM host, on the **Pricing** page. Span savings then only count usage above the allowance, worked out per billing month. See [Span allowances](savings/configure-vendor-pricing.md#span-allowances).
+- **Metric series pricing.** For vendors that bill custom metrics by series, such as Datadog, set a **Metric series price** per 100 series per month on the **Pricing** page. Collectors now count the distinct metric series their rules drop each hour, and the dashboard prices them as series-hours instead of bytes. See [Configure vendor pricing](savings/configure-vendor-pricing.md).
+- **Datadog test harness.** Run Telemetry Chopper in front of your Datadog account: the collector sends OTLP to a Datadog Agent, a script sends labelled logs, traces and metrics, and a table lists what Datadog should show for each DROP, REDACT, EXCLUDE_INDEX and ROUTE rule. See [Datadog test harness](../deploy/datadog/README.md).
+
+### Changed
+
+- The control plane stores fleet keys as SHA-256 hashes instead of the keys themselves, so it can't show a key again after the first time. Upgrading converts existing keys; collectors need no changes.
+- The seed step in the Docker Compose, sandbox and pilot stacks and the Helm chart only creates `local-dev-fleet` when it doesn't exist. It used to write the fleet's published key and sample rules back on every start or upgrade, undoing a rotated key, a paused rule or an edited one.
+- With no fleet, the dashboard and pricing pages link to the **Fleets** page instead of asking you to run the seed.
+- The Helm chart keeps the fleet key in a `<release>-fleet` Secret instead of the collector ConfigMap, and restarts the collectors when `fleet.key` changes. The new `fleet.existingSecret` value uses a Secret you manage instead. Upgrades need no value changes. See [Create a fleet](deploy/manage-fleets.md#create-a-fleet).
+- Upgrade collectors to get metric series savings. Older collectors don't report dropped series, so their series savings stay at $0. Existing rate cards get a series price of $0, so their savings don't change.
+- Pricing examples in the docs and on the **Pricing** page use Datadog's current monthly-plan list price for indexing, $2.04 per million events, instead of $1.70.
+
+## October 18, 2026
+
+### New
+
+- **Operator sign-in.** The dashboard, pricing settings and every change now require signing in. Each person has their own operator account; add and remove them on the new **Operators** page. The first operator comes from `CHOPPER_ADMIN_EMAIL` and `CHOPPER_ADMIN_PASSWORD` and must choose a new password at first sign-in. See [Sign in, manage operators and review the audit log](deploy/sign-in-and-operators.md).
+- **Audit log.** A new **Audit log** page records every rule, pricing and operator change, and every sign-in, with who did it and when.
 - **Ignore case.** `EQUALS`, `CONTAINS` and `REGEX_MATCH` conditions have an **Ignore case** option, so one rule matches `INFO`, `info` and `Info`. See [Ignore case](rules/README.md#ignore-case).
 - **Severity number.** Log rules can match `log.severity_number`, which every SDK sets the same way, and the new `LESS_THAN` operator, for example `log.severity_number` `LESS_THAN` `13` for INFO and below. See [Conditions](rules/README.md#conditions).
 - **Fleet-wide THROTTLE limits.** THROTTLE rules have a **Limit applies to** setting. **Whole fleet**, the default for new rules, splits the rate between the collectors currently reporting, so several gateway replicas together pass at most the rate. **Each collector** keeps the previous behavior. See [Set THROTTLE limits for several gateways](rules/README.md#set-throttle-limits-for-several-gateways).
@@ -14,11 +43,17 @@
 
 ### Changed
 
+- Upgrading: sign in with `CHOPPER_ADMIN_EMAIL` / `CHOPPER_ADMIN_PASSWORD` after this release. The Docker Compose, sandbox and pilot stacks default to `admin@localhost` / `chopper-admin-dev`; the Helm chart generates a password into the `<release>-admin` Secret (new `controlPlane.admin` values). Collectors need no changes.
+- `/` now redirects to the dashboard (or the sign-in page) instead of showing the framework's starter page.
 - The dashboard rejects `GREATER_THAN` and `LESS_THAN` values that aren't numbers. Collectors previously never matched such rules.
 - Upgrade collectors before creating ignore-case, `LESS_THAN` or `log.severity_number` rules. Older collectors match them case-sensitively or not at all.
 - Existing THROTTLE rules apply to each collector, as before. Their badge now says **per collector** instead of **global**.
 - Collectors send a `collector_id` and `interval_seconds` in their heartbeat, and the policy response includes `active_collectors`.
 - Upgrade collectors before relying on fleet-wide THROTTLE rules. Older collectors enforce the full rate each.
+
+### Documentation
+
+- The README's security section no longer says collectors keep no telemetry on disk. Since persistent exporter queues arrived on October 17, queued batches wait on the gateway's disk until they're sent. [Which telemetry does a gateway write to disk?](deploy/run-gateways-in-production.md#which-telemetry-does-a-gateway-write-to-disk) explains what's written and how to turn it off.
 
 ## October 17, 2026
 

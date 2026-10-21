@@ -1,6 +1,6 @@
 # Keep events out of your vendor's index
 
-Many observability vendors bill twice for the same data: once to **ingest** it (per GB) and again to **index** it for search (per million events). Indexing is often the larger charge. At around 200 bytes per event, indexing an event at $1.70 per million costs about 85 times as much as ingesting it at $0.10 per GB.
+Many observability vendors bill twice for the same data: once to **ingest** it (per GB) and again to **index** it for search (per million events). Indexing is often the larger charge. For example, Datadog's monthly-plan list prices are $0.10 per GB to ingest logs and $2.04 per million log events to index them. At around 200 bytes per event, indexing an event costs about 100 times as much as ingesting it.
 
 The **EXCLUDE_INDEX** action lets you keep sending data your vendor needs for live tail, metrics generated from logs or archives, without paying to make it searchable. Matching spans and log records are forwarded as usual, with the record attribute `chopper.index` set to `false`. A matching exclusion filter in your vendor then keeps them out of the index.
 
@@ -22,7 +22,7 @@ The **EXCLUDE_INDEX** action lets you keep sending data your vendor needs for li
 
 - Only the matching record is marked, not its neighbors from the same service.
 - Evaluation continues after an EXCLUDE_INDEX rule. If a later rule drops the record, it counts as dropped, which saves ingest and indexing, rather than as excluded.
-- The dashboard counts each forwarded, marked record as one event of **indexing savings**, priced at your indexing rate for that signal. Excluded records save no ingest or egress, because they are still sent.
+- The dashboard counts each forwarded, marked record as one event of **indexing savings**, priced at your indexing rate for that signal times its indexed share. Excluded records save no ingest or egress, because they are still sent.
 
 ## What it saves compared with dropping
 
@@ -34,7 +34,7 @@ The **EXCLUDE_INDEX** action lets you keep sending data your vendor needs for li
 
 ## Considerations
 
-- Indexing savings assume your vendor would otherwise have indexed every event it ingested. If you already exclude some data on the vendor side, the dashboard overstates indexing savings by that share.
+- Indexing savings are multiplied by the **indexed share** on your rate card: the fraction of events your vendor would have indexed anyway. Set it if you already exclude some data on the vendor side, or the dashboard overstates indexing savings. See [Indexed share](../savings/configure-vendor-pricing.md#indexed-share).
 - The rate card holds one indexing price per signal. If your vendor has several index tiers (for example 3-day and 15-day retention), use the price of the tier the data would have gone to.
 
 ## Frequently asked questions

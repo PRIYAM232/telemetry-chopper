@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Datadog test harness driver. Usage: deploy/datadog/run.sh up|rules|send|send-ddtrace|send-ddextras|check [run-id]|down
+# Reads DD_API_KEY / DD_SITE (and optionally DD_APP_KEY for `check`) from
+# deploy/datadog/.env or the environment. DD_INTAKE picks where the collector
+# sends: agent (default, through a Datadog Agent) or direct (straight to
+# Datadog's OTLP intake, no Agent).
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"
+[ -f "$HERE/.env" ] && set -a && . "$HERE/.env" && set +a
+DD_SITE="${DD_SITE:-datadoghq.com}"
+DD_INTAKE="${DD_INTAKE:-agent}"
+case "$DD_INTAKE" in
+  agent) mode_files=() ;;
+  direct) mode_files=(-f "$HERE/compose.direct.yaml") ;;
+  *) echo "DD_INTAKE must be agent or direct, not '$DD_INTAKE'" >&2; exit 1 ;;
+esac
+compose_all() { # every service, whatever the mode: for down
+  docker compose -p chopper-dd --project-directory "$HERE" \
+    -f "$HERE/../docker/docker-compose.yaml" -f "$HERE/compose.yaml" "$@"
+}
+compose() { compose_all ${mode_files[@]+"${mode_files[@]}"} "$@"; }
+psql_cp() { docker exec -i chopper-dd-postgres psql -U chopper -d chopper_control -v ON_ERROR_STOP=1 "$@"; }
+metric() { # sum of a collector self-metric, optional label filter regex
+  curl -s 127.0.0.1:18898/metrics | grep -E "^$1[{ ]" | grep -E "${2:-.}" | awk '{s+=$NF} END {print s+0}'
+}
+agent_metric() { # sum of a Datadog Agent internal telemetry counter
+  docker exec chopper-dd-agent curl -s localhost:5000/telemetry | grep -E "^$1[{ ]" | awk '{s+=$NF} END {print s+0}'
+}
+agent_stat() { # a "Name: value" line from agent status, e.g. LogsSent
+  docker exec chopper-dd-agent agent status 2>/dev/null | awk -v k="$1:" '$1 == k {print $2; exit}'
+}
+
+case "${1:-}" in
+  up)
+    : "${DD_API_KEY:?set DD_API_KEY in $HERE/.env}"
+    # Switching from agent mode: the Agent is no longer part of the stack.
+    [ "$DD_INTAKE" = direct ] && docker rm -f chopper-dd-agent >/dev/null 2>&1
+    compose up -d --build --wait
+    echo "mode: $DD_INTAKE"
+    ;;
+  rules)
+    psql_cp < "$HERE/rules.sql"
+    echo "waiting for the collector to load the rules..."
+    until docker logs chopper-dd-collector 2>&1 | grep -q '"rules_total": 10'; do sleep 1; done
+    docker logs chopper-dd-collector 2>&1 | grep '"rules_total": 10' | tail -1
+    ;;
+  send)
+    python3 "$HERE/send.py" "${2:-}"
+    ;;
+  send-ddtrace)
+    # Same idea with Datadog's own tracing library: a container on the stack's
+    # network sends ddtrace spans to the collector's Datadog receiver (:8126).
+    docker build -q -t chopper-dd-ddtrace "$HERE/ddtrace" >/dev/null
+    docker run --rm --network chopper-dd_default \
+      -e DD_TRACE_AGENT_URL=http://otelcol-chopper:8126 -e DD_ENV=chopper-test \
+      -e DD_REMOTE_CONFIGURATION_ENABLED=false -e DD_INSTRUMENTATION_TELEMETRY_ENABLED=false \
+      chopper-dd-ddtrace "${2:-}"
+    ;;
+  send-ddextras)
+    if [ "$DD_INTAKE" = direct ]; then
+      echo "send-ddextras needs DD_INTAKE=agent: in direct mode there's no Agent to forward profiles, Data Streams or remote configuration to" >&2
+      exit 1
+    fi
+    # Profiler, Data Streams Monitoring, remote configuration and telemetry
+    # through the collector, which forwards them to the Agent
+    # (chopper_datadog_passthrough). Runs about 30 seconds.
+    docker build -q -t chopper-dd-ddtrace "$HERE/ddtrace" >/dev/null
+    docker run --rm --network chopper-dd_default \
+      -e DD_TRACE_AGENT_URL=http://otelcol-chopper:8126 -e DD_ENV=chopper-test \
+      --entrypoint python chopper-dd-ddtrace /send_ddextras.py "${2:-}"
+    ;;
+  check)
+    if [ "$DD_INTAKE" = direct ]; then
+      dest='otlp_http/datadog-'; dest_name="Datadog OTLP intake, otlp.$DD_SITE"
+    else
+      dest='otlp_grpc/datadog'; dest_name="Datadog Agent"
+    fi
+    echo "== Collector (in: received, out: sent to $dest_name)"
+    for s in spans log_records metric_points; do
+      printf '  %-14s received %-6s sent to datadog %s\n' "$s" \
+        "$(metric otelcol_receiver_accepted_$s)" \
+        "$(metric otelcol_exporter_sent_$s "$dest")"
+    done
+    printf '  %-14s %s\n' "send failures" "$(metric 'otelcol_exporter_send_failed_(spans|log_records|metric_points)' "$dest")"
+    if [ "$DD_INTAKE" = direct ]; then
+      # The intake answers 2xx only after checking the API key (a bad key
+      # gets 403), so "sent" means Datadog accepted the batch. A rejected
+      # batch is logged by the exporter with the HTTP status.
+      echo "== Datadog OTLP intake"
+      printf '  %-14s %s\n' "rejected" \
+        "$(docker logs chopper-dd-collector 2>&1 | grep 'otlp_http/datadog-' | grep -c -E 'Exporting failed|Permanent error' || true)"
+      docker logs chopper-dd-collector 2>&1 | grep 'otlp_http/datadog-' | grep -E 'Exporting failed|Permanent error' |
+        grep -o -E 'error": "[^"]{0,200}' | tail -3 | sed 's/^/  last: /' || true
+    else
+      echo "== Forwarded to the Datadog Agent by the passthrough (product/result: requests)"
+      curl -s 127.0.0.1:18898/metrics | grep -E '^otelcol_chopper_datadog_passthrough_requests[{ ]' |
+        sed -E 's/.*product="([^"]*)".*result="([^"]*)".* ([0-9.e+]+)$/  \1\/\2: \3/' | sort || true
+      echo "== Datadog Agent (totals since it started)"
+      docker exec chopper-dd-agent agent status 2>/dev/null | grep -m1 -E 'API key ending with .*:' | sed -E 's/^ */  /'
+      printf '  %-14s received %-6s sent to datadog %s (retries %s)\n' logs \
+        "$(agent_metric runtime__datadog_agent_otlp_logs_events)" "$(agent_stat LogsSent)" "$(agent_stat RetryCount)"
+      printf '  %-14s received %s\n' metric_points "$(agent_metric runtime__datadog_agent_otlp_metrics_events)"
+      # The Agent's APM status and counters don't count spans that arrive over
+      # OTLP (they stay at 0 / "No traces received"), so report upload errors
+      # instead and count spans in Datadog.
+      printf '  %-14s not counted by the Agent; upload errors %s\n' spans \
+        "$(docker logs chopper-dd-agent 2>&1 | grep '| TRACE |' | grep -c -E '\| (ERROR|WARN) \|.*pkg/trace/writer' || true)"
+    fi
+    if [ -z "${DD_APP_KEY:-}" ] || [ -z "${2:-}" ]; then
+      echo "  To count spans per case, set DD_APP_KEY and pass a run id, or search APM for service:chopper-dd-test or service:chopper-dd-tracer"
+    fi
+    if [ -n "${2:-}" ] && [ -n "${DD_APP_KEY:-}" ]; then
+      echo "== Datadog API (run $2, last 30 min; indexing can lag 1-2 min)"
+      for kind in logs spans; do
+        curl -s -X POST "https://api.$DD_SITE/api/v2/$kind/analytics/aggregate" \
+          -H "DD-API-KEY: $DD_API_KEY" -H "DD-APPLICATION-KEY: $DD_APP_KEY" -H 'Content-Type: application/json' \
+          -d "{\"compute\":[{\"aggregation\":\"count\"}],\"filter\":{\"query\":\"@chopper.test.run:$2\",\"from\":\"now-30m\",\"to\":\"now\"},\"group_by\":[{\"facet\":\"@chopper.test.case\"}]}" \
+          | python3 -c 'import json,sys; d=json.load(sys.stdin); b=d.get("data",{}).get("buckets",[]); print("  '"$kind"':", {x["by"]["@chopper.test.case"]: x["computes"]["c0"] for x in b} if b or "data" in d else d)'
+      done
+      printf '  logs still containing the raw email: '
+      curl -s -X POST "https://api.$DD_SITE/api/v2/logs/analytics/aggregate" \
+        -H "DD-API-KEY: $DD_API_KEY" -H "DD-APPLICATION-KEY: $DD_APP_KEY" -H 'Content-Type: application/json' \
+        -d "{\"compute\":[{\"aggregation\":\"count\"}],\"filter\":{\"query\":\"@chopper.test.run:$2 @user.email:*alice*\",\"from\":\"now-30m\",\"to\":\"now\"}}" \
+        | python3 -c 'import json,sys; b=json.load(sys.stdin).get("data",{}).get("buckets",[]); print(b[0]["computes"]["c0"] if b else 0)'
+    fi
+    ;;
+  down)
+    compose_all down -v --rmi local
+    docker image rm chopper-dd-ddtrace >/dev/null 2>&1 || true
+    ;;
+  *) sed -n 2,4p "$0"; exit 1 ;;
+esac

@@ -14,12 +14,25 @@ dist:
 
 receivers:
   - gomod: go.opentelemetry.io/collector/receiver/otlpreceiver v0.156.0
+  # Datadog tracing libraries (dd-trace-*) and the Datadog Agent, so services
+  # instrumented with Datadog rather than OpenTelemetry can run through the
+  # rules too. Listens on the Agent's trace port (8126): point DD_AGENT_HOST /
+  # DD_TRACE_AGENT_URL at the collector. Alpha upstream as of v0.156.0.
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/receiver/datadogreceiver v0.156.0
 
 extensions:
   # Persistent exporter queues (issue #48): an exporter's sending_queue with
   # `storage: file_storage` writes queued batches to disk, so data waiting
   # for a slow or unreachable backend survives a collector crash or restart.
   - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/extension/storage/filestorage v0.156.0
+  # Sends what the datadog receiver doesn't handle (profiles, Data Streams
+  # Monitoring, Dynamic Instrumentation, remote configuration, telemetry, the
+  # EVP proxy) on to a real Datadog Agent, as an HTTP middleware on the
+  # receiver: `middlewares: [{id: chopper_datadog_passthrough}]`. Without it
+  # the receiver answers those requests with 200 and discards them. The
+  # version is a placeholder: the `replaces` directive below points at the
+  # local module.
+  - gomod: github.com/PRIYAM232/telemetry-chopper/data-plane/extensions/datadogpassthrough v0.1.0
 
 processors:
   # Load shedding (issue #48): refuses data once heap use passes its soft
@@ -31,6 +44,13 @@ processors:
   # Our custom in-process filter engine. The version here is a placeholder —
   # the `replaces` directive below redirects resolution to the local path.
   - gomod: github.com/PRIYAM232/telemetry-chopper/data-plane/processors/filterprocessor v0.1.0
+  # OTTL edits after the rules. Used to keep Datadog-traced spans looking the
+  # same in Datadog APM: the datadog receiver turns them into OTel spans, and
+  # the Datadog Agent would otherwise rename their operations (flask.request
+  # becomes http.server.request). Copying the original operation and resource
+  # names into operation.name / resource.name, which the Agent honors,
+  # restores them. See docs/deploy/datadog-tracing-libraries.md.
+  - gomod: github.com/open-telemetry/opentelemetry-collector-contrib/processor/transformprocessor v0.156.0
 
 exporters:
   - gomod: go.opentelemetry.io/collector/exporter/debugexporter v0.156.0
@@ -62,6 +82,7 @@ connectors:
 # resolved relative to that go.mod — hence `../`, not `./`.
 replaces:
   - github.com/PRIYAM232/telemetry-chopper/data-plane/processors/filterprocessor => ../processors/filterprocessor
+  - github.com/PRIYAM232/telemetry-chopper/data-plane/extensions/datadogpassthrough => ../extensions/datadogpassthrough
   # Security floor for gRPC. The v0.156.0 modules resolve
   # google.golang.org/grpc v1.82.0, which exposes every gRPC-Go server (here,
   # the OTLP receiver on :4317) to two unauthenticated remote DoS advisories:

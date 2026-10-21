@@ -2,8 +2,9 @@
 #
 # Seven independent jobs, one per surface:
 #   go              — vet, gofmt, race-enabled tests and govulncheck for
-#                     every Go module: the chopper_filter engine and the
-#                     sandbox load generator
+#                     every Go module: the chopper_filter engine, the
+#                     chopper_datadog_passthrough extension and the sandbox
+#                     load generator
 #   collector-build — assembles the otelcol-chopper distro with ocb, proving
 #                     builder-config.yaml and the processor still compose,
 #                     then runs govulncheck on the generated module (what ships)
@@ -11,6 +12,8 @@
 #                     (archives, .deb, .rpm, Homebrew cask), then installs the
 #                     .deb on the runner and checks the service starts
 #   control-plane   — ESLint + Prisma schema validation
+#   control-plane-test — Vitest against a real PostgreSQL service container,
+#                     migrated with `prisma migrate deploy`
 #   helm            — chart lint + full renders with the Phase 10
 #                     monitoring toggles and every cold-storage archive on,
 #                     so gated templates can't rot
@@ -50,6 +53,11 @@ jobs:
         include:
           - module: filterprocessor
             dir: data-plane/processors/filterprocessor
+          # chopper_datadog_passthrough. Its tests run the stock contrib
+          # datadog receiver with the middleware attached, so an upstream
+          # change that breaks the composition fails here.
+          - module: datadogpassthrough
+            dir: data-plane/extensions/datadogpassthrough
           # The sandbox load generator. Its pii_test.go pins the REDACT
           # pattern documented in deploy/sandbox/README.md against every PII
           # shape the generator emits, so drift in either side fails here.
@@ -80,6 +88,10 @@ jobs:
           fi
       - name: go test -race
         run: go test -race ./...
+      # The allocation guards skip under -race, which makes sync.Pool drop
+      # items at random, so run them once more without it.
+      - name: allocation guards
+        run: go test -run 'Allocat' ./...
       - name: govulncheck
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@${{ env.GOVULNCHECK_VERSION }}
@@ -100,10 +112,37 @@ jobs:
       - name: Assemble otelcol-chopper
         working-directory: data-plane
         run: builder --config builder-config.yaml
-      # The standalone config and the example rules file it points at are
-      # what the packages install; the built binary must accept both.
-      - name: Validate standalone config and example rules
-        run: data-plane/dist/otelcol-chopper validate --config data-plane/config/otelcol-standalone.yaml
+      # Every collector config the repo ships must load in this build, so a
+      # config naming a component missing from builder-config.yaml, or a
+      # broken OTTL statement, fails here instead of at deploy time. The Helm
+      # chart's config is rendered with the optional Datadog receiver and hot
+      # backend on, and persistent queues off (their directory only exists in
+      # the pod).
+      - uses: azure/setup-helm@v4
+      - name: Shipped collector configs load
+        env:
+          CHOPPER_FLEET_KEY: ci
+          POD_NAME: ci
+          DD_API_KEY: ci
+          DD_SITE: datadoghq.com
+        run: |
+          helm template chopper deploy/helm/telemetry-chopper \
+            --set collector.datadogReceiver.enabled=true \
+            --set collector.datadogReceiver.agentPassthrough.endpoint=http://datadog-agent:8126 \
+            --set collector.hotBackend.otlp.endpoint=datadog-agent:4317 \
+            --set collector.persistentQueue.enabled=false \
+            --show-only templates/configmap-collector.yaml \
+            | sed -n '/otelcol-k8s.yaml: |/,$p' | tail -n +2 | sed 's/^    //' \
+            > "$RUNNER_TEMP/otelcol-k8s.yaml"
+          # otelcol-standalone.yaml also loads the example rules file the
+          # packages install.
+          for f in data-plane/config/otelcol-dev.yaml data-plane/config/otelcol-standalone.yaml \
+                   deploy/docker/otelcol-docker.yaml \
+                   deploy/datadog/otelcol-datadog.yaml deploy/datadog/otelcol-datadog-direct.yaml \
+                   "$RUNNER_TEMP/otelcol-k8s.yaml"; do
+            echo "== $f"
+            data-plane/dist/otelcol-chopper validate --config "$f"
+          done
       # Source mode against the go.mod ocb generated in dist/, so the
       # builder-config.yaml `replaces:` security pins are in effect and only
       # vulnerabilities on a real call path fail the build. Not -mode=binary:
@@ -178,6 +217,47 @@ jobs:
       - name: Prisma client generates cleanly
         run: npx prisma generate
 
+  control-plane-test:
+    name: Control plane tests (Vitest + PostgreSQL)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: control-plane
+    services:
+      # Same major version as deploy/docker/docker-compose.yaml.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: chopper
+          POSTGRES_PASSWORD: chopper
+          POSTGRES_DB: chopper_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U chopper -d chopper_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # test/global-setup.ts applies every migration to this database, and
+      # the tests empty its tables between cases.
+      TEST_DATABASE_URL: postgresql://chopper:chopper@localhost:5432/chopper_test
+      # prisma.config.ts reads DATABASE_URL when `prisma generate` loads it;
+      # the tests themselves use TEST_DATABASE_URL.
+      DATABASE_URL: postgresql://chopper:chopper@localhost:5432/chopper_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: control-plane/package-lock.json
+      - run: npm ci
+      - name: Generate Prisma client
+        run: npx prisma generate
+      - name: Vitest
+        run: npm test
+
   helm:
     name: Helm chart
     runs-on: ubuntu-latest
@@ -208,6 +288,51 @@ jobs:
           if helm template chopper deploy/helm/telemetry-chopper \
                --set collector.coldStorage.s3.enabled=true > /dev/null 2>&1; then
             echo "expected s3.enabled without s3.bucket to fail the render"; exit 1
+          fi
+      - name: Fleet key stays out of the collector ConfigMap
+        run: |
+          chart=deploy/helm/telemetry-chopper
+          canary=chopper_sk_ci_canary_value
+          if helm template chopper "$chart" --set fleet.key="$canary" \
+               --show-only templates/configmap-collector.yaml | grep -q "$canary"; then
+            echo "the fleet key was rendered into the collector ConfigMap"; exit 1
+          fi
+          helm template chopper "$chart" --set fleet.key="$canary" \
+            --show-only templates/secret-fleet.yaml | grep -q "$canary"
+      - name: Datadog receiver and hot backend render only when set
+        run: |
+          chart=deploy/helm/telemetry-chopper
+          on=$(helm template chopper "$chart" --set collector.datadogReceiver.enabled=true \
+                 --set collector.hotBackend.otlp.endpoint=datadog-agent:4317)
+          grep -q 'receivers: \[otlp, datadog\]' <<<"$on"
+          grep -q 'transform/datadog' <<<"$on"
+          grep -q 'name: datadog-apm' <<<"$on"
+          test "$(grep -c 'exporters: \[otlp_grpc/hot\]' <<<"$on")" -eq 3
+          if helm template chopper "$chart" | grep -q -E 'datadog-apm|transform/datadog|otlp_grpc/hot'; then
+            echo "the Datadog receiver or hot backend rendered without being set"; exit 1
+          fi
+          # The Agent passthrough needs both the receiver and an endpoint.
+          pass=$(helm template chopper "$chart" --set collector.datadogReceiver.enabled=true \
+                   --set collector.datadogReceiver.agentPassthrough.endpoint=http://datadog-agent:8126)
+          grep -q -- '- id: chopper_datadog_passthrough' <<<"$pass"
+          grep -q 'compression_algorithms: \[\]' <<<"$pass"
+          grep -q 'endpoint: "http://datadog-agent:8126"' <<<"$pass"
+          grep -q 'extensions: \[file_storage, chopper_datadog_passthrough\]' <<<"$pass"
+          if grep -q chopper_datadog_passthrough <<<"$on" ||
+             helm template chopper "$chart" --set collector.datadogReceiver.agentPassthrough.endpoint=http://x:8126 \
+               | grep -q chopper_datadog_passthrough; then
+            echo "the Datadog Agent passthrough rendered without the receiver and an endpoint"; exit 1
+          fi
+      - name: Render with an existing fleet key Secret
+        run: >
+          helm template chopper deploy/helm/telemetry-chopper
+          --set fleet.existingSecret=chopper-fleet --set fleet.key=
+          > /dev/null
+      - name: A missing fleet key fails the render
+        run: |
+          if helm template chopper deploy/helm/telemetry-chopper \
+               --set fleet.key= > /dev/null 2>&1; then
+            echo "expected an empty fleet.key without fleet.existingSecret to fail the render"; exit 1
           fi
 
   image-scan:
