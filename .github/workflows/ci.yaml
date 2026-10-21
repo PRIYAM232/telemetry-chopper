@@ -8,9 +8,10 @@
 #   collector-build — assembles the otelcol-chopper distro with ocb, proving
 #                     builder-config.yaml and the processor still compose,
 #                     then runs govulncheck on the generated module (what ships)
-#   collector-packages — GoReleaser snapshot of every release artifact
-#                     (archives, .deb, .rpm, Homebrew cask), then installs the
-#                     .deb on the runner and checks the service starts
+#   collector-packages — GoReleaser snapshot of the Linux amd64 archive, .deb
+#                     and .rpm, then installs the .deb on the runner and
+#                     checks the service starts; skipped (passes in seconds)
+#                     when a PR doesn't touch the collector or packaging
 #   control-plane   — ESLint + Prisma schema validation
 #   control-plane-test — Vitest against a real PostgreSQL service container,
 #                     migrated with `prisma migrate deploy`
@@ -159,35 +160,63 @@ jobs:
   collector-packages:
     name: Collector packages (GoReleaser snapshot)
     runs-on: ubuntu-latest
-    # Five sequential collector builds; generous, but a hung build still ends.
-    timeout-minutes: 75
+    timeout-minutes: 30
+    # A required check, so it runs on every PR, but it only builds when the
+    # PR could affect the packages; otherwise it passes in seconds. It builds
+    # Linux amd64 only (archive, .deb, .rpm) to keep reviews fast; the full
+    # five-platform build runs in release.yaml on tags.
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@v5
+      - name: Does this change touch the collector or its packaging?
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "${{ github.event.pull_request.base.sha }}" HEAD |
+               grep -qE '^(data-plane/|deploy/packaging/|\.goreleaser\.yaml$|\.github/workflows/)'; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "No collector or packaging changes; nothing to build."
+          fi
+      - if: steps.scope.outputs.build == 'true'
+        uses: actions/setup-go@v5
         with:
           go-version: "1.26.x"
           check-latest: true
           cache-dependency-path: data-plane/processors/filterprocessor/go.sum
-      - name: Install OpenTelemetry Collector Builder
+      - if: steps.scope.outputs.build == 'true'
+        name: Install OpenTelemetry Collector Builder
         run: go install go.opentelemetry.io/collector/cmd/builder@${{ env.OCB_VERSION }}
-      # Everything the release job builds (archives, .deb, .rpm, cask), with
-      # nothing published or signed, so packaging breaks in review rather
-      # than on a release tag.
-      - uses: goreleaser/goreleaser-action@v6
+      # The release config narrowed to linux/amd64; fails if the platform
+      # lines it rewrites ever change shape, rather than silently building
+      # everything again.
+      - if: steps.scope.outputs.build == 'true'
+        name: Linux amd64 GoReleaser config
+        run: |
+          sed -e 's/^    goos: \[linux, darwin, windows\]$/    goos: [linux]/' \
+              -e 's/^    goarch: \[amd64, arm64\]$/    goarch: [amd64]/' \
+              .goreleaser.yaml > "$RUNNER_TEMP/goreleaser-ci.yaml"
+          grep -q '^    goos: \[linux\]$' "$RUNNER_TEMP/goreleaser-ci.yaml"
+          grep -q '^    goarch: \[amd64\]$' "$RUNNER_TEMP/goreleaser-ci.yaml"
+      # Archive, .deb and .rpm as the release builds them, nothing published
+      # or signed. The Homebrew cask needs macOS builds, so it's skipped.
+      - if: steps.scope.outputs.build == 'true'
+        uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
           version: "~> v2"
-          # One target at a time, as in release.yaml: parallel collector
-          # builds run the runner out of memory.
-          args: release --snapshot --clean --skip=sign,sbom --parallelism 1
-      - name: Packaged config and rules pass validation
+          args: release --snapshot --clean --skip=sign,sbom,homebrew --parallelism 1 --config ${{ runner.temp }}/goreleaser-ci.yaml
+      - if: steps.scope.outputs.build == 'true'
+        name: Packaged config and rules pass validation
         run: |
           tar xzf dist/otelcol-chopper_*_linux_amd64.tar.gz -C "$RUNNER_TEMP"
           cd "$RUNNER_TEMP"
           CHOPPER_RULES_FILE=./rules.yaml ./otelcol-chopper validate --config config.yaml
-      - name: .deb installs and the service starts
+      - if: steps.scope.outputs.build == 'true'
+        name: .deb installs and the service starts
         run: |
           sudo dpkg -i dist/telemetry-chopper_*_amd64.deb
           otelcol-chopper --version
