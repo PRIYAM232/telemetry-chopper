@@ -1,15 +1,21 @@
 // Seed script — provisions one deterministic dev fleet plus three policy
 // rules so the data plane can be tested immediately after `prisma db seed`.
 //
-// Everything is upserted against FIXED UUIDs, so the script is idempotent and
-// the IDs/API key below can be hardcoded in data-plane/config/otelcol-dev.yaml.
-// These credentials are for LOCAL DEVELOPMENT ONLY.
+// FIXED UUIDs and key, so they can be hardcoded in
+// data-plane/config/otelcol-dev.yaml. These credentials are for LOCAL
+// DEVELOPMENT ONLY.
+//
+// Create-only: if the dev fleet already exists the script changes nothing.
+// Docker Compose and the Helm chart run it on every start or upgrade, and it
+// used to write the dev key and sample rules back each time, undoing a key
+// rotation, a paused rule or an edited one.
 //
 // Run via the Prisma CLI (configured in prisma.config.ts):  npx prisma db seed
 
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { fleetKeyHint, hashFleetKey } from "../src/lib/fleet-keys";
 
 export const DEV_FLEET_ID = "f1ee7000-0000-4000-8000-000000000001";
 export const DEV_FLEET_API_KEY =
@@ -24,15 +30,23 @@ const prisma = new PrismaClient({
 });
 
 async function main() {
-  const fleet = await prisma.collectorFleet.upsert({
+  const existing = await prisma.collectorFleet.findUnique({
     where: { id: DEV_FLEET_ID },
-    update: { apiKey: DEV_FLEET_API_KEY },
-    create: {
+    select: { name: true },
+  });
+  if (existing) {
+    console.log(`Dev fleet "${existing.name}" already exists; nothing to seed.`);
+    return;
+  }
+
+  const fleet = await prisma.collectorFleet.create({
+    data: {
       id: DEV_FLEET_ID,
       name: "local-dev-fleet",
       description:
         "Deterministic development fleet for local end-to-end testing of the chopper_filter sync loop.",
-      apiKey: DEV_FLEET_API_KEY,
+      apiKeyHash: hashFleetKey(DEV_FLEET_API_KEY),
+      apiKeyHint: fleetKeyHint(DEV_FLEET_API_KEY),
     },
   });
 
@@ -78,14 +92,9 @@ async function main() {
     },
   ] as const;
 
-  for (const rule of rules) {
-    const { id, ...fields } = rule;
-    await prisma.policyRule.upsert({
-      where: { id },
-      update: { ...fields },
-      create: { id, fleetId: fleet.id, ...fields },
-    });
-  }
+  await prisma.policyRule.createMany({
+    data: rules.map((rule) => ({ ...rule, fleetId: fleet.id })),
+  });
 
   console.log(`Seeded fleet "${fleet.name}"`);
   console.log(`  fleet_id : ${fleet.id}`);

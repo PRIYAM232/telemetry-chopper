@@ -39,6 +39,17 @@ spec:
                 secretKeyRef:
                   name: {{ .Release.Name }}-database
                   key: DATABASE_URL
+            # First operator bootstrap (controlPlane.admin in values.yaml).
+            - name: CHOPPER_ADMIN_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.admin.existingSecret | default (printf "%s-admin" .Release.Name) }}
+                  key: CHOPPER_ADMIN_EMAIL
+            - name: CHOPPER_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.controlPlane.admin.existingSecret | default (printf "%s-admin" .Release.Name) }}
+                  key: CHOPPER_ADMIN_PASSWORD
           # `/` is a static page — it proves the server is up without
           # touching the database, so pods report Ready while the
           # post-install migration hook is still running (first install).

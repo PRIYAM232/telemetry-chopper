@@ -23,6 +23,16 @@ controlPlane:
       memory: 256Mi
     limits:
       memory: 512Mi
+  # The first operator, created on the first sign-in to an empty database.
+  # They must choose a new password then; once any operator exists these
+  # are ignored. The install notes print the command to read the password.
+  admin:
+    email: admin@localhost
+    # Empty generates a random password, kept across upgrades.
+    password: ""
+    # Name of an existing Secret with keys CHOPPER_ADMIN_EMAIL and
+    # CHOPPER_ADMIN_PASSWORD, used instead of the two values above.
+    existingSecret: ""
 
 migrator:
   # The control-plane Dockerfile's `builder` stage — the only image carrying
@@ -76,6 +86,27 @@ collector:
     limitPercentage: 80
     spikeLimitPercentage: 25
 
+  # Traces from Datadog tracing libraries (dd-trace-*). Adds the datadog
+  # receiver on the Agent's trace port, so services instrumented with Datadog
+  # rather than OpenTelemetry run through the rules too: point their
+  # DD_TRACE_AGENT_URL (or DD_AGENT_HOST) at the collector Service. A
+  # transform step keeps their operation and resource names as Datadog
+  # showed them. See docs/deploy/datadog-tracing-libraries.md.
+  datadogReceiver:
+    enabled: false
+    port: 8126
+    # Tracers send more than traces to this port: Continuous Profiler
+    # profiles, Data Streams Monitoring, Dynamic Instrumentation, remote
+    # configuration, instrumentation telemetry and the EVP proxy. The datadog
+    # receiver discards those. Set endpoint to a Datadog Agent's trace port
+    # (not its OTLP port) and they're forwarded there unchanged, e.g.
+    # http://datadog-agent.datadog.svc.cluster.local:8126. Traces still go
+    # through the rules.
+    agentPassthrough:
+      endpoint: ""
+      # Per forwarded request, upload included. Slower requests get a 504.
+      timeout: 30s
+
   # Persistent exporter queues (issue #48). The archive exporters (s3,
   # azureBlob) keep their sending queue in the file_storage extension, so
   # batches waiting for an upload survive a collector crash or restart.
@@ -83,6 +114,8 @@ collector:
   # restarts (crashes, OOM kills) but not pod deletion or rescheduling. A
   # PVC survives those too, but needs one volume per pod (a StatefulSet, or
   # replicas: 1) and usually podSecurityContext.fsGroup: 65532.
+  # Queued batches sit unencrypted on this volume until they're sent; set
+  # enabled: false to keep them in memory only (a crash then loses them).
   persistentQueue:
     enabled: true
     volume:
@@ -114,6 +147,20 @@ collector:
   #    valueFrom: { secretKeyRef: { name: chopper-archive-aws, key: access-key-id } }
   extraEnvFrom: []
   #  - secretRef: { name: chopper-archive-azure }
+
+  # Where the traces/hot, logs/hot and metrics/hot pipelines send what the
+  # rules keep: an OTLP gRPC endpoint, such as a Datadog Agent with OTLP
+  # ingest (datadog-agent.datadog.svc:4317), Grafana Alloy or a vendor's
+  # OTLP intake. With no endpoint, the hot pipelines end in the debug
+  # exporter, as before. Uses the persistent queue when that's enabled.
+  hotBackend:
+    otlp:
+      endpoint: ""
+      # Plaintext gRPC, e.g. to an in-cluster Agent. Set false for TLS.
+      insecure: true
+      # Extra request headers, e.g. a vendor API key from extraEnv:
+      #   { dd-api-key: "${env:DD_API_KEY}" }
+      headers: {}
 
   # Archive exporters for the traces/cold, logs/cold and metrics/cold
   # pipelines, i.e. everything a ROUTE rule sends to "cold-storage" (see the
@@ -217,10 +264,21 @@ metrics:
     annotations: {}
 
 fleet:
-  # Deterministic LOCAL DEV fleet provisioned by the migrator's seed step —
-  # rotate both values for any real deployment.
+  # Deterministic LOCAL DEV fleet provisioned by the migrator's seed step.
+  # Its key is public: for any real deployment, create a fleet (or rotate
+  # this one's key) on the console's Fleets page and set id and key to it.
   id: f1ee7000-0000-4000-8000-000000000001
+  # Stored in the <release>-fleet Secret and read by the collector as
+  # ${env:CHOPPER_FLEET_KEY}, so it never lands in the collector ConfigMap.
+  # Changing it rolls the collector pods.
   key: chopper_dev_sk_2f7d1b9c4e8a4f60b3d5a9c1e6f80712
+  # Name of an existing Secret holding the key under CHOPPER_FLEET_KEY, e.g.
+  #   kubectl -n chopper create secret generic chopper-fleet \
+  #     --from-literal=CHOPPER_FLEET_KEY=<key>
+  # When set, fleet.key is ignored and no Secret is created. Collectors read
+  # the key at startup: after changing the Secret, run
+  #   kubectl -n chopper rollout restart deploy/<release>-collector
+  existingSecret: ""
   syncInterval: 10s
   statsInterval: 10s
 

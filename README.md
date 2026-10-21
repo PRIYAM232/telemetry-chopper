@@ -21,6 +21,32 @@ Telemetry Chopper fixes this at the edge. It's a smart OpenTelemetry firewall th
 
 ---
 
+## Table of contents
+
+- [Architecture](#architecture)
+- [Core capabilities](#core-capabilities)
+  - [Routing to hot and cold backends](#routing-to-hot-and-cold-backends)
+  - [Archiving to cold storage](#archiving-to-cold-storage)
+- [Quick start — 5 minutes to value](#quick-start--5-minutes-to-value)
+  - [1. Clone and run the stack](#1-clone-and-run-the-stack)
+  - [2. Open the dashboard](#2-open-the-dashboard)
+  - [3. Send some telemetry](#3-send-some-telemetry)
+  - [4. Create a rule — no restart required](#4-create-a-rule--no-restart-required)
+  - [5. Watch the savings](#5-watch-the-savings)
+- [Deploying to Kubernetes](#deploying-to-kubernetes)
+- [Repository layout](#repository-layout)
+- [Local development](#local-development)
+  - [`chopper_filter` configuration](#chopper_filter-configuration)
+- [Security Posture & Roadmap](#security-posture--roadmap)
+  - [Designed for trusted environments (the reality)](#designed-for-trusted-environments-the-reality)
+  - [Production deployment recommendations](#production-deployment-recommendations)
+  - [Inherent security benefits](#inherent-security-benefits)
+  - [The enterprise roadmap](#the-enterprise-roadmap)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
 ## Architecture
 
 Telemetry Chopper uses a deliberately decoupled, split-brain design: a compiled, low-latency **Data Plane** that touches your telemetry, and a web-based **Control Plane** that never does.
@@ -31,7 +57,7 @@ Telemetry Chopper uses a deliberately decoupled, split-brain design: a compiled,
 
 ```mermaid
 flowchart LR
-    apps["📦 Your services<br/>(OTLP SDKs, agents)"]
+    apps["📦 Your services<br/>(OTLP SDKs, agents,<br/>Datadog tracing libraries)"]
 
     subgraph dp ["Telemetry Chopper Data Plane"]
         collector["otelcol-chopper<br/>chopper_filter processor<br/>+ routing connectors"]
@@ -46,7 +72,7 @@ flowchart LR
     hot["🔥 Hot backend<br/>Datadog, Grafana, Elastic…"]
     cold["🧊 Cold backend<br/>object storage, archive"]
 
-    apps -- "OTLP gRPC :4317<br/>OTLP HTTP :4318" --> collector
+    apps -- "OTLP gRPC :4317<br/>OTLP HTTP :4318<br/>Datadog traces :8126" --> collector
     collector -. "poll rules (10s)" .-> ui
     collector -. "push match/drop stats" .-> ui
     collector -- "traces/logs/metrics · hot" --> hot
@@ -156,7 +182,7 @@ cd telemetry-chopper
 docker compose -f deploy/docker/docker-compose.yaml up -d --build
 ```
 
-This brings up the full stack in dependency order: PostgreSQL → a one-shot migrate + seed job → the Control Plane → the `otelcol-chopper` collector. The seed provisions a deterministic **local dev fleet** whose credentials are pre-wired into the collector config (rotate these for any real deployment).
+This brings up the full stack in dependency order: PostgreSQL → a one-shot migrate + seed job → the Control Plane → the `otelcol-chopper` collector. The seed provisions a deterministic **local dev fleet** whose credentials are pre-wired into the collector config. Its key is public, so [rotate it or create your own fleet](docs/deploy/manage-fleets.md#replace-the-development-fleets-key) for any real deployment.
 
 | Service | Port | Purpose |
 |---|---|---|
@@ -167,7 +193,7 @@ This brings up the full stack in dependency order: PostgreSQL → a one-shot mig
 
 ### 2. Open the dashboard
 
-Head to **[http://localhost:3000](http://localhost:3000)** — you'll see the seeded dev fleet, ready for rules.
+Head to **[http://localhost:3000](http://localhost:3000)** and sign in as `admin@localhost` with password `chopper-admin-dev`, then choose your own password. You'll see the seeded dev fleet, ready for rules. To add teammates or review who changed what, see [Sign in, manage operators and review the audit log](docs/deploy/sign-in-and-operators.md).
 
 ### 3. Send some telemetry
 
@@ -203,7 +229,7 @@ Savings are priced at $0.10/GB until you enter your own rates. To match your bil
 
 See [Measure observability savings](docs/savings/README.md) for a tour of the dashboard.
 
-> **Shipping to a real backend:** the packaged dev pipeline terminates in the `debug` exporter so you can see everything working. The distribution also ships the `otlp_grpc` and `otlp_http` exporters, so any OTLP endpoint (Jaeger, Tempo, Prometheus, Grafana Cloud, vendor OTLP intakes) is a config change in your collector's `hot`/`cold` pipelines — see [`deploy/sandbox/otelcol-sandbox.yaml`](deploy/sandbox/otelcol-sandbox.yaml). For archives, it also ships the `awss3`, `azure_blob` and `file` exporters — see [Archiving to cold storage](#archiving-to-cold-storage). For vendor-specific exporters, add them to [`data-plane/builder-config.yaml`](data-plane/builder-config.yaml) and rebuild with `make build`.
+> **Shipping to a real backend:** the packaged dev pipeline terminates in the `debug` exporter so you can see everything working. The distribution also ships the `otlp_grpc` and `otlp_http` exporters, so any OTLP endpoint (Jaeger, Tempo, Prometheus, Grafana Cloud, vendor OTLP intakes) is a config change in your collector's `hot`/`cold` pipelines — see [`deploy/sandbox/otelcol-sandbox.yaml`](deploy/sandbox/otelcol-sandbox.yaml). For Datadog, send OTLP to a Datadog Agent with OTLP ingest on; [`deploy/datadog/`](deploy/datadog/README.md) is a ready-made test setup. Services instrumented with Datadog's tracing libraries can send their traces through the rules too: see [Filter traces from Datadog tracing libraries](docs/deploy/datadog-tracing-libraries.md). For archives, it also ships the `awss3`, `azure_blob` and `file` exporters — see [Archiving to cold storage](#archiving-to-cold-storage). For vendor-specific exporters, add them to [`data-plane/builder-config.yaml`](data-plane/builder-config.yaml) and rebuild with `make build`.
 >
 > **Live REDACT/THROTTLE demo:** [`deploy/sandbox/`](deploy/sandbox/README.md) runs the full stack against real Jaeger and Prometheus backends with a noisy, PII-laden synthetic workload.
 
@@ -252,6 +278,7 @@ make ocb     # install the OpenTelemetry Collector Builder (pinned v0.156.0)
 make tidy    # resolve the processor module's dependencies
 make build   # ocb generates + compiles data-plane/dist/otelcol-chopper
 make run     # start the collector on :4317 (gRPC) / :4318 (HTTP)
+make bench   # benchmark the chopper_filter hot path (per batch: ns, allocs)
 ```
 
 **Control plane** (requires Node.js and a running PostgreSQL — `docker compose -f deploy/docker/docker-compose.yaml up -d postgres`):
@@ -261,6 +288,7 @@ cd control-plane
 npm install
 npx prisma migrate dev && npx prisma generate
 npm run dev    # http://localhost:3000
+npm test       # Vitest against a chopper_test database on the same PostgreSQL
 ```
 
 **Version rule:** the `ocb` binary and every collector `gomod` entry in [`builder-config.yaml`](data-plane/builder-config.yaml) must come from the same collector release line (currently **v0.156.0** / API modules v1.62.0).
@@ -274,7 +302,7 @@ processors:
     sync_interval: 10s          # how often to poll for rule changes
     stats_endpoint: http://control-plane:3000/api/v1/telemetry/<fleet-id>/stats
     stats_interval: 10s         # how often to report match/drop stats
-    fleet_key: <fleet-api-key>  # per-fleet auth; seeded value is dev-only
+    fleet_key: ${env:CHOPPER_FLEET_KEY}  # per-fleet auth; create fleets and keys on the Fleets page
     log_span_details: false     # per-span debug logging (dev only)
 ```
 
@@ -300,20 +328,20 @@ We're open-sourcing Telemetry Chopper with a deliberately honest security story:
 
 ### Designed for trusted environments (the reality)
 
-Telemetry Chopper V1 assumes deployment inside a **trusted network perimeter** — your private VPC, internal network, or Kubernetes cluster. The Control Plane does not yet ship built-in user authentication, and collector-to-control-plane traffic is authenticated with per-fleet API keys over plain HTTP. Neither component should be exposed directly to the public internet as-is. The docker-compose and Helm quick starts seed **deterministic dev fleet credentials** for a friction-free first run — rotate them for anything beyond local evaluation.
+Telemetry Chopper V1 assumes deployment inside a **trusted network perimeter** — your private VPC, internal network, or Kubernetes cluster. The Control Plane requires every operator to sign in and records every change in an audit log, but it has no roles or single sign-on yet, and collector-to-control-plane traffic is authenticated with per-fleet API keys over plain HTTP. Neither component should be exposed directly to the public internet as-is. The docker-compose quick start ships **default sign-in credentials** and the docker-compose and Helm quick starts seed **deterministic dev fleet credentials** for a friction-free first run — replace both for anything beyond local evaluation. Fleet keys are stored hashed and can be [rotated from the console](docs/deploy/manage-fleets.md#rotate-a-fleet-key) with a grace period, so collectors move to a new key without a gap.
 
 ### Production deployment recommendations
 
 V1 is designed to slot behind the perimeter controls your platform team already operates:
 
-- **Control Plane access** — front the Next.js UI and policy API with an Identity-Aware Proxy such as [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/) or [Tailscale](https://tailscale.com/), or restrict it to your internal VPN. Every rule mutation then carries your organization's existing identity and access policy.
+- **Control Plane access** — give each person their own operator account and set your own first-operator credentials before the Control Plane is reachable by others; see [Sign in, manage operators and review the audit log](docs/deploy/sign-in-and-operators.md). For single sign-on today, also front the UI with an Identity-Aware Proxy such as [Cloudflare Access](https://www.cloudflare.com/zero-trust/products/access/) or [Tailscale](https://tailscale.com/), or restrict it to your internal VPN.
 - **Gateway resilience** — run `memory_limiter` first in every pipeline and give exporters persistent queues (`file_storage`), so traffic spikes are shed instead of OOM-killing a gateway and queued telemetry survives a restart. The Helm chart does both by default; see [Run gateways in production](docs/deploy/run-gateways-in-production.md).
 - **Network encryption** — enforce mTLS between `otelcol-chopper` and the Control Plane with a Kubernetes service mesh ([Istio](https://istio.io/), [Linkerd](https://linkerd.io/)) or a TLS-terminating ingress controller. The sync and stats endpoints are plain HTTP calls, so mesh sidecars wrap them transparently — no Telemetry Chopper configuration changes required.
 
 ### Inherent security benefits
 
 - **100% self-hosted** — telemetry, policies, and statistics never leave your infrastructure; data sovereignty is structural, not contractual.
-- **Zero-disk data plane** — the collector is stateless: rulesets and counters live in memory only, so a compromised or evicted collector node holds no telemetry at rest.
+- **Disk use is explicit** — rulesets and counters live in memory only, and telemetry reaches a collector's disk only through components you configure: persistent exporter queues (`file_storage`) and the `file` exporter. Queued data has already passed through your rules, so REDACT masks are applied before anything is written. The Helm chart keeps its archive exporters' queues in a per-pod `emptyDir` by default; set `collector.persistentQueue.enabled: false` to hold them in memory instead. See [Which telemetry does a gateway write to disk?](docs/deploy/run-gateways-in-production.md#which-telemetry-does-a-gateway-write-to-disk)
 - **PII stops at the edge** — `REDACT` rules mask sensitive data *before* it leaves your network, shrinking the compliance surface of every downstream vendor.
 - **CVE-gated supply chain** — CI and release pipelines scan all three container images with [Trivy](https://trivy.dev/) and fail on any `CRITICAL` vulnerability; a vulnerable image never receives a registry tag.
 
@@ -323,7 +351,6 @@ Slated for upcoming V1.x releases to make Telemetry Chopper fully compliant out 
 
 - **RBAC & SSO** — Role-Based Access Control and OIDC/SAML Single Sign-On for the Control Plane.
 - **Native mTLS** — cryptographic mutual TLS enforcement between the data plane and control plane, without requiring a mesh.
-- **Audit logging** — an immutable trail for every telemetry rule mutation: who changed or dropped which rule, and when.
 
 ## Contributing
 

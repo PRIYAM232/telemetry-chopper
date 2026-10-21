@@ -88,13 +88,25 @@ model CollectorFleet {
   id          String   @id @default(uuid()) @db.Uuid
   name        String
   description String?
-  // Bearer token presented by collectors when polling for policies.
-  apiKey      String   @unique
+  // Collectors authenticate with `Authorization: Bearer <fleet key>`. Only
+  // the key's SHA-256 (hex) is stored: the key itself is shown once, when the
+  // fleet is created or its key rotated (src/lib/fleet-keys.ts). The hint is
+  // the key's last four characters, so operators can tell keys apart.
+  apiKeyHash      String   @unique
+  apiKeyHint      String
+  apiKeyCreatedAt DateTime @default(now())
+  // After a rotation the replaced key keeps working until
+  // previousApiKeyExpiresAt, so collectors can be moved to the new key
+  // without a gap. All three are NULL when no previous key is valid.
+  previousApiKeyHash      String?
+  previousApiKeyHint      String?
+  previousApiKeyExpiresAt DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   rules   PolicyRule[]
   metrics FleetMetric[]
+  metricSeriesHours MetricSeriesHour[]
   ruleMetrics RuleMetric[]
   collectors  CollectorInstance[]
   pricing    PricingConfig?
@@ -237,6 +249,26 @@ model PricingConfig {
   tracesIndexPricePerMillion Decimal @default(0) @db.Decimal(10, 4)
   logsIndexPricePerMillion   Decimal @default(0) @db.Decimal(10, 4)
 
+  // Series-based metrics pricing: USD per 100 metric series per month, for
+  // vendors that bill custom metrics by series rather than bytes (Datadog).
+  // Priced on the series-hours in MetricSeriesHour. 0 = the vendor doesn't
+  // bill metrics by series.
+  metricsPricePer100Series Decimal @default(0) @db.Decimal(10, 4)
+
+  // Span volume the vendor includes every month before billing ingest and
+  // indexing (Datadog: 150 GB ingested and 1M indexed spans per APM host,
+  // pooled across the account). Dropped spans only save money above it.
+  // 0 = no allowance: every span is billed.
+  tracesIncludedGbPerMonth              Decimal @default(0) @db.Decimal(14, 3)
+  tracesIncludedIndexedMillionsPerMonth Decimal @default(0) @db.Decimal(14, 3)
+
+  // Percent of ingested spans / log events the vendor would index without
+  // Telemetry Chopper. Datadog indexes spans only through retention filters,
+  // often a small sample, so dropping a span saves indexing only at this
+  // rate. 100 = every ingested event is indexed.
+  tracesIndexedSharePct Decimal @default(100) @db.Decimal(5, 2)
+  logsIndexedSharePct   Decimal @default(100) @db.Decimal(5, 2)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -317,6 +349,23 @@ model RuleMetric {
   @@index([fleetId, createdAt])
 }
 
+// How many distinct metric series one collector's rules dropped in one UTC
+// hour. Collectors report a running count for the current hour with every
+// heartbeat; the row keeps the largest. Summed over a window, droppedSeries
+// is series-hours: what series-billing vendors charge for (their monthly
+// count is the average over the month's hours).
+model MetricSeriesHour {
+  fleetId       String         @db.Uuid
+  fleet         CollectorFleet @relation(fields: [fleetId], references: [id], onDelete: Cascade)
+  // The collector's collector_id; "" for a collector that sent none.
+  collectorId   String
+  hour          DateTime
+  droppedSeries Int
+
+  @@id([fleetId, collectorId, hour])
+  @@index([fleetId, hour])
+}
+
 // One row per collector process that has heartbeated for a fleet (issue #46),
 // keyed by the collector's service.instance.id. The policy endpoint counts
 // the active ones so fleet-wide THROTTLE rules can split their rate; rows a
@@ -329,7 +378,98 @@ model CollectorInstance {
   // intervals pass without a heartbeat.
   intervalSeconds Float
   lastSeenAt      DateTime
+  // Whether its latest heartbeat authenticated with the fleet's previous key
+  // (one rotated out but still in its grace period): the Fleets page counts
+  // these so operators know when the old key can be revoked.
+  usesPreviousKey Boolean @default(false)
 
   @@id([fleetId, instanceId])
   @@index([lastSeenAt])
+}
+
+// ---------------------------------------------------------------------------
+// Operator authentication and audit trail (issue #10)
+// ---------------------------------------------------------------------------
+
+// A person who signs in to the dashboard. Every operator can manage rules,
+// pricing and other operators; there are no roles yet. The first operator is
+// created from CHOPPER_ADMIN_EMAIL / CHOPPER_ADMIN_PASSWORD on the first
+// sign-in to an empty table (see src/lib/auth.ts), later ones from
+// /settings/operators.
+model Operator {
+  id                 String    @id @default(uuid()) @db.Uuid
+  // Stored lowercased: sign-in matches case-insensitively.
+  email              String    @unique
+  name               String?
+  // scrypt, self-describing: "scrypt$N$r$p$<salt>$<hash>" (src/lib/password.ts).
+  passwordHash       String
+  // Set for operators whose password someone else chose (the env bootstrap,
+  // or an operator added from the dashboard): they must pick their own
+  // before they can use the dashboard.
+  mustChangePassword Boolean   @default(false)
+  lastSignInAt       DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions    OperatorSession[]
+  auditEvents AuditEvent[]
+}
+
+// A signed-in browser. The cookie carries a random token; only its SHA-256
+// is stored, so a database leak doesn't hand out live sessions.
+model OperatorSession {
+  // hex SHA-256 of the cookie token.
+  id         String   @id
+  operatorId String   @db.Uuid
+  operator   Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([operatorId])
+}
+
+enum AuditAction {
+  RULE_CREATED
+  RULE_PAUSED
+  RULE_RESUMED
+  RULE_DELETED
+  RULE_RESTORED
+  RATE_CARD_UPDATED
+  COMMITMENT_UPDATED
+  EGRESS_UPDATED
+  OPERATOR_SIGNED_IN
+  OPERATOR_SIGN_IN_FAILED
+  OPERATOR_SIGNED_OUT
+  OPERATOR_CREATED
+  OPERATOR_REMOVED
+  OPERATOR_PASSWORD_CHANGED
+  FLEET_CREATED
+  FLEET_KEY_ROTATED
+  FLEET_PREVIOUS_KEY_REVOKED
+}
+
+// Who changed what, and when. Append-only: nothing in the app updates or
+// deletes these rows. Deliberately no foreign keys to rules or fleets, so the
+// trail outlives what it describes (rules are hard-deleted when their undo
+// window closes); actor is the operator's email at the time, so it survives
+// the operator's removal too.
+model AuditEvent {
+  id         String      @id @default(uuid()) @db.Uuid
+  createdAt  DateTime    @default(now())
+  operatorId String?     @db.Uuid
+  operator   Operator?   @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+  // The operator's email; for a failed sign-in, the email that was tried.
+  actor      String
+  action     AuditAction
+  fleetId    String?     @db.Uuid
+  // The rule or operator acted on, by id and by its name at the time.
+  targetId   String?
+  targetName String?
+  // Action-specific snapshot: the rule as created, the saved rate card, ...
+  details    Json?
+
+  @@index([createdAt])
+  @@index([fleetId, createdAt])
 }

@@ -16,10 +16,15 @@ import {
 } from "@/generated/prisma/enums";
 import { countActiveCollectors } from "@/lib/collectors";
 import type { PolicyRuleModel } from "@/generated/prisma/models";
+import { TopBar } from "@/app/top-bar";
+import { requireOperator } from "@/lib/auth";
 import { formatBytes } from "@/lib/format";
 import { computeEgressSavings, getEgressConfig } from "@/lib/egress";
 import { formatUSD } from "@/lib/format";
-import { computeSavings, getRateCard, rateCardLabel } from "@/lib/pricing";
+import { computeSavings, getDroppedSeriesHours, getRateCard, rateCardLabel } from "@/lib/pricing";
+import { getFleetChoices } from "@/lib/fleet-selection";
+import { getCommitment } from "@/lib/overage";
+import { getSpanSavings, hasSpanAllowance, withSpanSavings } from "@/lib/span-allowance";
 import { prisma } from "@/lib/prisma";
 import { re2SyntaxError } from "@/lib/re2";
 import {
@@ -38,6 +43,7 @@ import { RangePicker } from "./range-picker";
 import { SavingsBreakdown } from "./savings-breakdown";
 import { CreateRuleForm } from "./create-rule-form";
 import { SubmitButton } from "./pending";
+import { FleetPicker } from "@/app/settings/fleets/fleet-picker";
 
 // This page reads live operational data on every request; never prerender it.
 export const dynamic = "force-dynamic";
@@ -67,28 +73,35 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<{ range?: string | string[] }>;
 }) {
+  const operator = await requireOperator();
   const range = parseTimeRange((await searchParams).range);
-  const fleet = await prisma.collectorFleet.findFirst({
-    orderBy: { createdAt: "asc" },
-    // Soft-deleted rules (issue #12) are hidden while their undo window runs.
-    include: { rules: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } } },
-  });
+  const { fleets, selected } = await getFleetChoices();
+  const fleet = selected
+    ? await prisma.collectorFleet.findUnique({
+        where: { id: selected.id },
+        // Soft-deleted rules (issue #12) are hidden while their undo window runs.
+        include: { rules: { where: { deletedAt: null }, orderBy: { createdAt: "asc" } } },
+      })
+    : null;
 
   if (!fleet) {
     return (
-      <main className="flex flex-1 items-center justify-center p-8">
-        <div className="max-w-md rounded-xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-950">
-          <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            No collector fleet found
-          </h1>
-          <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
-            Seed the development fleet first:{" "}
-            <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs dark:bg-zinc-900">
-              npx prisma db seed
-            </code>
-          </p>
-        </div>
-      </main>
+      <>
+        <TopBar operator={operator} current="/dashboard" />
+        <main className="flex flex-1 items-center justify-center p-8">
+          <div className="max-w-md rounded-xl border border-zinc-200 bg-white p-8 text-center dark:border-zinc-800 dark:bg-zinc-950">
+            <h1 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+              No collector fleet found
+            </h1>
+            <p className="mt-2 text-sm text-zinc-600 dark:text-zinc-400">
+              <Link href="/settings/fleets" className="font-medium underline underline-offset-2">
+                Create a fleet
+              </Link>{" "}
+              and give its key to your collectors.
+            </p>
+          </div>
+        </main>
+      </>
     );
   }
 
@@ -113,6 +126,7 @@ export default async function DashboardPage({
     ruleStats,
     perRuleReporting,
     activeCollectors,
+    droppedSeriesHours,
   ] = await Promise.all([
     prisma.fleetMetric.aggregate({
       where: { fleetId: fleet.id, ...inWindow },
@@ -154,6 +168,7 @@ export default async function DashboardPage({
     // Collectors that identify themselves in heartbeats (issue #46); 0 when
     // every collector predates that, which the header falls back from.
     countActiveCollectors(fleet.id),
+    getDroppedSeriesHours(fleet.id, since),
   ]);
 
   const tracesReceived = totals._sum.tracesReceived ?? 0;
@@ -175,7 +190,7 @@ export default async function DashboardPage({
     [TargetSignal.METRICS]: metricsReceived,
   };
   // BIGINT sums arrive as bigint; Number() is exact below 9 PB.
-  const savings = computeSavings(
+  const baseSavings = computeSavings(
     {
       droppedBytes: {
         traces: Number(totals._sum.tracesDroppedBytes ?? 0),
@@ -187,9 +202,25 @@ export default async function DashboardPage({
         traces: totals._sum.tracesUnindexed ?? 0,
         logs: totals._sum.logsUnindexed ?? 0,
       },
+      droppedSeriesHours,
     },
     rateCard,
   );
+  // A monthly span allowance (Datadog: per APM host) means dropped spans
+  // only save money above it, month by month.
+  const savings = hasSpanAllowance(rateCard)
+    ? withSpanSavings(
+        baseSavings,
+        await getSpanSavings(
+          fleet.id,
+          since,
+          new Date(nowMs),
+          (await getCommitment(fleet.id))?.billingCycleDay ?? 1,
+          rateCard,
+          rateCard,
+        ),
+      )
+    : baseSavings;
   const egress = computeEgressSavings(savings.droppedBytes, egressConfig);
   const totalSavingsUSD = savings.totalUSD + egress.usd;
   const unsizedDrops =
@@ -204,184 +235,187 @@ export default async function DashboardPage({
     heartbeatAgeMs !== null && heartbeatAgeMs < HEARTBEAT_STALE_MS;
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
-      <AutoRefresh intervalMs={10_000} />
-      <RuleToaster />
+    <>
+      <TopBar operator={operator} current="/dashboard" />
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-8 sm:px-6 lg:px-8">
+        <AutoRefresh intervalMs={10_000} />
+        <RuleToaster />
 
-      {/* Header */}
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
-            Telemetry Chopper
-            <span className="ml-2 text-base font-normal text-zinc-500 dark:text-zinc-400">
-              observability cost control
-            </span>
-          </h1>
-          <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
-            Fleet <span className="font-medium text-zinc-900 dark:text-zinc-200">{fleet.name}</span>
-            <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
-            <code className="font-mono text-xs">{fleet.id}</code>
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-        <Link
-          href="/settings/pricing"
-          className="rounded-full border border-zinc-200 px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-900"
-        >
-          Pricing
-        </Link>
-        <div
-          className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium ${
-            collectorOnline
-              ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-400"
-              : "border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
-          }`}
-        >
-          <span
-            className={`h-2 w-2 rounded-full ${
-              collectorOnline ? "animate-pulse bg-emerald-500" : "bg-zinc-400"
-            }`}
-          />
-          {collectorOnline
-            ? activeCollectors > 1
-              ? `${activeCollectors} collectors online`
-              : "Collector online"
-            : heartbeatAgeMs !== null
-              ? `Last heartbeat ${Math.round(heartbeatAgeMs / 1000)}s ago`
-              : "No heartbeat yet"}
-        </div>
-        </div>
-      </header>
-
-      {/* Metric banner */}
-      <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm text-zinc-500 dark:text-zinc-400">
-          Savings over {range === "all" ? "" : "the "}
-          <span className="font-medium text-zinc-900 dark:text-zinc-100">{windowLabel}</span>
-          {received === 0 && lastMetric !== null && " · no heartbeats in this window"}
-        </h2>
-        <RangePicker range={range} />
-      </div>
-      <section aria-label="Fleet savings" className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          label="Telemetry processed"
-          value={integerFmt.format(received)}
-          hint={`${integerFmt.format(tracesReceived)} spans · ${integerFmt.format(logsReceived)} logs · ${integerFmt.format(metricsReceived)} metrics, ${windowLabel}`}
-        />
-        <StatCard
-          label="Telemetry dropped"
-          value={integerFmt.format(dropped)}
-          hint={`${integerFmt.format(tracesDropped)} spans · ${integerFmt.format(logsDropped)} logs · ${integerFmt.format(metricsDropped)} metrics filtered`}
-          accent="text-rose-600 dark:text-rose-400"
-        />
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Data reduction</p>
-          <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">
-            {received > 0 ? `${reductionPct.toFixed(1)}%` : "—"}
-          </p>
-          <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
-            <div
-              className="h-full rounded-full bg-emerald-500"
-              style={{ width: `${Math.min(reductionPct, 100)}%` }}
-            />
-          </div>
-        </div>
-        <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            {egress.enabled ? "Total infrastructure & ingest savings" : "Estimated savings"}
-          </p>
-          <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
-            {formatUSD(totalSavingsUSD)}
-          </p>
-          <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
-            Vendor ingest + indexing at {rateCardLabel(rateCard)}{" "}
-            {rateCard.vendor === null ? `$${rateCard.logsPricePerGb.toFixed(2)}/GB` : "rate card"}
-            {egress.enabled && ` + cloud egress at $${egressConfig.pricePerGb}/GB`}, {windowLabel} ·{" "}
-            <Link
-              href="/settings/pricing"
-              className="underline decoration-zinc-300 underline-offset-2 hover:text-zinc-700 dark:decoration-zinc-700 dark:hover:text-zinc-300"
-            >
-              {rateCard.vendor === null ? "set your rates" : "edit"}
-            </Link>
-          </p>
-          {unsizedDrops > 0 && (
-            <p
-              className="mt-1 text-xs text-amber-600 dark:text-amber-400"
-              title="These heartbeats came from collectors that report drop counts but not bytes. Upgrade the collectors to price their drops."
-            >
-              {integerFmt.format(unsizedDrops)} drops unpriced (no byte data)
+        {/* Header */}
+        <header className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+              Telemetry Chopper
+              <span className="ml-2 text-base font-normal text-zinc-500 dark:text-zinc-400">
+                observability cost control
+              </span>
+            </h1>
+            <p className="mt-1 text-sm text-zinc-600 dark:text-zinc-400">
+              Fleet{" "}
+              {fleets.length > 1 ? (
+                <FleetPicker fleets={fleets} selectedId={fleet.id} />
+              ) : (
+                <span className="font-medium text-zinc-900 dark:text-zinc-200">{fleet.name}</span>
+              )}
+              <span className="mx-1.5 text-zinc-300 dark:text-zinc-700">·</span>
+              <code className="font-mono text-xs">{fleet.id}</code>
             </p>
-          )}
-        </div>
-      </section>
-
-      <SavingsBreakdown
-        savings={savings}
-        rateCard={rateCard}
-        egress={egress}
-        egressConfig={egressConfig}
-        windowLabel={windowLabel}
-      />
-
-      <BillingPeriodSection fleetId={fleet.id} rateCard={rateCard} nowMs={nowMs} />
-
-      {/* Rules */}
-      <section aria-label="Policy rules" className="mt-10">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
-            Policy rules
-            <span className="ml-2 text-sm font-normal text-zinc-500 dark:text-zinc-400">
-              {fleet.rules.length} total · synced by collectors every poll
-              {fleet.rules.length > 0 &&
-                (perRuleReporting
-                  ? ` · counts over ${range === "all" ? "" : "the "}${windowLabel}`
-                  : " · per-rule counts appear once your collectors report them (requires an updated collector)")}
-            </span>
-          </h2>
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          {/* Create form */}
-          <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50/50 p-5 dark:border-zinc-700 dark:bg-zinc-900/40">
-            <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">New rule</h3>
-            <CreateRuleForm fleetId={fleet.id} />
           </div>
+          <div className="flex flex-wrap items-center gap-3">
+          <div
+            className={`flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-medium ${
+              collectorOnline
+                ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-400"
+                : "border-zinc-200 bg-zinc-50 text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400"
+            }`}
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                collectorOnline ? "animate-pulse bg-emerald-500" : "bg-zinc-400"
+              }`}
+            />
+            {collectorOnline
+              ? activeCollectors > 1
+                ? `${activeCollectors} collectors online`
+                : "Collector online"
+              : heartbeatAgeMs !== null
+                ? `Last heartbeat ${Math.round(heartbeatAgeMs / 1000)}s ago`
+                : "No heartbeat yet"}
+          </div>
+          </div>
+        </header>
 
-          {/* Rule grid */}
-          <div className="flex flex-col gap-3 lg:col-span-2">
-            {fleet.rules.length === 0 ? (
-              <div className="flex flex-1 items-center justify-center rounded-xl border border-zinc-200 p-8 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
-                No rules yet — every span passes through untouched.
-              </div>
-            ) : (
-              fleet.rules.map((rule) => {
-                const stats = ruleStats.get(rule.id) ?? EMPTY_RULE_STATS;
-                const signalReceived = receivedBySignal[rule.targetSignal] ?? 0;
-                return (
-                  <RuleCard
-                    key={rule.id}
-                    rule={rule}
-                    stats={perRuleReporting ? stats : null}
-                    savingsUSD={ruleSavingsUSD(rule.targetSignal, stats, rateCard, egressConfig)}
-                    // Both come from the same heartbeats, so the share can't exceed
-                    // 1 — clamp anyway so hand-edited rows can't show 167%.
-                    dropShare={dropped > 0 ? Math.min(stats.dropped / dropped, 1) : 0}
-                    windowLabel={windowLabel}
-                    activeCollectors={activeCollectors}
-                    silent={
-                      perRuleReporting &&
-                      stats.matched === 0 &&
-                      signalReceived > 0 &&
-                      nowMs - rule.createdAt.getTime() > RULE_WARMUP_MS
-                    }
-                  />
-                );
-              })
+        {/* Metric banner */}
+        <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-sm text-zinc-500 dark:text-zinc-400">
+            Savings over {range === "all" ? "" : "the "}
+            <span className="font-medium text-zinc-900 dark:text-zinc-100">{windowLabel}</span>
+            {received === 0 && lastMetric !== null && " · no heartbeats in this window"}
+          </h2>
+          <RangePicker range={range} />
+        </div>
+        <section aria-label="Fleet savings" className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard
+            label="Telemetry processed"
+            value={integerFmt.format(received)}
+            hint={`${integerFmt.format(tracesReceived)} spans · ${integerFmt.format(logsReceived)} logs · ${integerFmt.format(metricsReceived)} metrics, ${windowLabel}`}
+          />
+          <StatCard
+            label="Telemetry dropped"
+            value={integerFmt.format(dropped)}
+            hint={`${integerFmt.format(tracesDropped)} spans · ${integerFmt.format(logsDropped)} logs · ${integerFmt.format(metricsDropped)} metrics filtered`}
+            accent="text-rose-600 dark:text-rose-400"
+          />
+          <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">Data reduction</p>
+            <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-zinc-900 dark:text-zinc-50">
+              {received > 0 ? `${reductionPct.toFixed(1)}%` : "—"}
+            </p>
+            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-900">
+              <div
+                className="h-full rounded-full bg-emerald-500"
+                style={{ width: `${Math.min(reductionPct, 100)}%` }}
+              />
+            </div>
+          </div>
+          <div className="rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
+            <p className="text-sm text-zinc-500 dark:text-zinc-400">
+              {egress.enabled ? "Total infrastructure & ingest savings" : "Estimated savings"}
+            </p>
+            <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight text-emerald-600 dark:text-emerald-400">
+              {formatUSD(totalSavingsUSD)}
+            </p>
+            <p className="mt-2 text-xs text-zinc-400 dark:text-zinc-500">
+              Vendor ingest + indexing{rateCard.metricsPricePer100Series > 0 && " + metric series"} at{" "}
+              {rateCardLabel(rateCard)}{" "}
+              {rateCard.vendor === null ? `$${rateCard.logsPricePerGb.toFixed(2)}/GB` : "rate card"}
+              {egress.enabled && ` + cloud egress at $${egressConfig.pricePerGb}/GB`}, {windowLabel} ·{" "}
+              <Link
+                href="/settings/pricing"
+                className="underline decoration-zinc-300 underline-offset-2 hover:text-zinc-700 dark:decoration-zinc-700 dark:hover:text-zinc-300"
+              >
+                {rateCard.vendor === null ? "set your rates" : "edit"}
+              </Link>
+            </p>
+            {unsizedDrops > 0 && (
+              <p
+                className="mt-1 text-xs text-amber-600 dark:text-amber-400"
+                title="These heartbeats came from collectors that report drop counts but not bytes. Upgrade the collectors to price their drops."
+              >
+                {integerFmt.format(unsizedDrops)} drops unpriced (no byte data)
+              </p>
             )}
           </div>
-        </div>
-      </section>
-    </main>
+        </section>
+
+        <SavingsBreakdown
+          savings={savings}
+          rateCard={rateCard}
+          egress={egress}
+          egressConfig={egressConfig}
+          windowLabel={windowLabel}
+        />
+
+        <BillingPeriodSection fleetId={fleet.id} rateCard={rateCard} nowMs={nowMs} />
+
+        {/* Rules */}
+        <section aria-label="Policy rules" className="mt-10">
+          <div className="flex items-baseline justify-between">
+            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">
+              Policy rules
+              <span className="ml-2 text-sm font-normal text-zinc-500 dark:text-zinc-400">
+                {fleet.rules.length} total · synced by collectors every poll
+                {fleet.rules.length > 0 &&
+                  (perRuleReporting
+                    ? ` · counts over ${range === "all" ? "" : "the "}${windowLabel}`
+                    : " · per-rule counts appear once your collectors report them (requires an updated collector)")}
+              </span>
+            </h2>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+            {/* Create form */}
+            <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50/50 p-5 dark:border-zinc-700 dark:bg-zinc-900/40">
+              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">New rule</h3>
+              <CreateRuleForm fleetId={fleet.id} />
+            </div>
+
+            {/* Rule grid */}
+            <div className="flex flex-col gap-3 lg:col-span-2">
+              {fleet.rules.length === 0 ? (
+                <div className="flex flex-1 items-center justify-center rounded-xl border border-zinc-200 p-8 text-sm text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">
+                  No rules yet — every span passes through untouched.
+                </div>
+              ) : (
+                fleet.rules.map((rule) => {
+                  const stats = ruleStats.get(rule.id) ?? EMPTY_RULE_STATS;
+                  const signalReceived = receivedBySignal[rule.targetSignal] ?? 0;
+                  return (
+                    <RuleCard
+                      key={rule.id}
+                      rule={rule}
+                      stats={perRuleReporting ? stats : null}
+                      savingsUSD={ruleSavingsUSD(rule.targetSignal, stats, rateCard, egressConfig)}
+                      // Both come from the same heartbeats, so the share can't exceed
+                      // 1 — clamp anyway so hand-edited rows can't show 167%.
+                      dropShare={dropped > 0 ? Math.min(stats.dropped / dropped, 1) : 0}
+                      windowLabel={windowLabel}
+                      activeCollectors={activeCollectors}
+                      silent={
+                        perRuleReporting &&
+                        stats.matched === 0 &&
+                        signalReceived > 0 &&
+                        nowMs - rule.createdAt.getTime() > RULE_WARMUP_MS
+                      }
+                    />
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </section>
+      </main>
+    </>
   );
 }
 
@@ -673,11 +707,11 @@ function RuleCard({
             "every trace"
           ) : (
             <>
-              {rule.conditionField} {rule.conditionOp}
-              {rule.conditionOp !== ConditionOp.EXISTS ? ` "${rule.conditionValue}"` : ""}
-              {rule.conditionIgnoreCase && (
-                <span className="text-zinc-500 dark:text-zinc-400"> · ignore case</span>
-              )}
+                {rule.conditionField} {rule.conditionOp}
+                {rule.conditionOp !== ConditionOp.EXISTS ? ` "${rule.conditionValue}"` : ""}
+                {rule.conditionIgnoreCase && (
+                  <span className="text-zinc-500 dark:text-zinc-400"> · ignore case</span>
+                )}
             </>
           )}
         </code>
