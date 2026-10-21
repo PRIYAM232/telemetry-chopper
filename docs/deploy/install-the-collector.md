@@ -2,10 +2,37 @@
 
 `otelcol-chopper`, the Telemetry Chopper collector, ships as a package for Debian, Ubuntu, RHEL, Fedora and other Linux distributions, as an archive for Linux, macOS and Windows, and through Homebrew on macOS. Installed on its own, it filters telemetry with rules from a local file. You don't need the control plane; see [Run without the control plane](../rules/rules-file.md).
 
+## Install with one command
+
+On Linux or macOS:
+
+```bash
+curl -fsSL https://telemetrychopper.com/install.sh | sh
+```
+
+The script installs the latest release the way that fits your system:
+
+- **Debian, Ubuntu:** the `.deb` package, which sets up and starts the `telemetry-chopper` service.
+- **RHEL, Fedora, Amazon Linux, Rocky, Alma, openSUSE:** the `.rpm` package, which does the same.
+- **macOS and other Linux systems:** the `otelcol-chopper` binary in `/usr/local/bin` (or `~/.local/bin` if you aren't root), with a starter `config.yaml` and `rules.yaml` in `~/.config/telemetry-chopper`.
+
+It checks every download against the release's `checksums.txt` before installing anything, and also checks that file's Sigstore signature if [`cosign`](https://docs.sigstore.dev/cosign/system_config/installation/) is installed. Installing a package asks for your password through `sudo`.
+
+To see what it would do without changing anything, or to pick a version:
+
+```bash
+curl -fsSL https://telemetrychopper.com/install.sh | sh -s -- --dry-run
+curl -fsSL https://telemetrychopper.com/install.sh | sh -s -- --version 0.1.3
+```
+
+Run it with `--help` for every option. The script is [`install.sh`](../../install.sh) in the repository; read it first if you prefer, or follow the manual steps below.
+
+## Install manually
+
 Every release is on the [GitHub releases page](https://github.com/PRIYAM232/telemetry-chopper/releases). The commands below use `VERSION` for the release you want, without the leading `v`:
 
 ```bash
-VERSION=0.1.0
+VERSION=0.1.3
 ```
 
 | Method | Platforms | Runs as a service | Rules file |
@@ -17,7 +44,7 @@ VERSION=0.1.0
 
 For containers and Kubernetes, use the `otelcol-chopper` image or the [Helm chart](../../deploy/helm/README.md) instead.
 
-## Install on Debian or Ubuntu
+### Install on Debian or Ubuntu
 
 ```bash
 ARCH=$(dpkg --print-architecture)   # amd64 or arm64
@@ -25,7 +52,7 @@ curl -fsSLO "https://github.com/PRIYAM232/telemetry-chopper/releases/download/v$
 sudo dpkg -i "telemetry-chopper_${VERSION}_${ARCH}.deb"
 ```
 
-## Install on RHEL, Fedora or Amazon Linux
+### Install on RHEL, Fedora or Amazon Linux
 
 ```bash
 ARCH=$(uname -m)   # x86_64 or aarch64
@@ -34,9 +61,42 @@ sudo dnf install -y "https://github.com/PRIYAM232/telemetry-chopper/releases/dow
 
 On systems with `yum` instead of `dnf`, use `sudo yum install -y` with the same URL.
 
-### What the package sets up
+### Run from an archive
 
-The package creates a `telemetry-chopper` system account, installs the service and starts it. Out of the box, the collector:
+Download and extract the archive for your platform: `linux` or `darwin` (macOS), with `amd64` or `arm64`.
+
+```bash
+OS=linux ARCH=amd64
+curl -fsSL "https://github.com/PRIYAM232/telemetry-chopper/releases/download/v${VERSION}/otelcol-chopper_${VERSION}_${OS}_${ARCH}.tar.gz" | tar xz
+CHOPPER_RULES_FILE=./rules.yaml ./otelcol-chopper --config config.yaml
+```
+
+On Windows, download `otelcol-chopper_<version>_windows_amd64.zip` from the release page and extract it, then run:
+
+```powershell
+$env:CHOPPER_RULES_FILE = ".\rules.yaml"
+.\otelcol-chopper.exe --config config.yaml
+```
+
+The archive contains the collector, `config.yaml`, the example `rules.yaml`, a short README and the license. The binaries aren't signed for macOS Gatekeeper; if macOS blocks a downloaded binary, run `xattr -d com.apple.quarantine otelcol-chopper` once.
+
+### Install with Homebrew
+
+```bash
+brew install --cask priyam232/tap/telemetry-chopper
+```
+
+Homebrew installs the `otelcol-chopper` binary only. Download a starting configuration and rules, then run it:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/PRIYAM232/telemetry-chopper/main/deploy/packaging/config.yaml
+curl -fsSL -o rules.yaml https://raw.githubusercontent.com/PRIYAM232/telemetry-chopper/main/data-plane/config/rules.example.yaml
+CHOPPER_RULES_FILE=./rules.yaml otelcol-chopper --config config.yaml
+```
+
+## After installing a package
+
+The `.deb` and `.rpm` packages, whether installed by the script or manually, set up the same thing. The package creates a `telemetry-chopper` system account, installs the service and starts it. Out of the box, the collector:
 
 - Receives OTLP on port 4317 (gRPC) and 4318 (HTTP), on all interfaces.
 - Applies the example rules: drops health-check spans and debug logs, and masks email addresses in log bodies.
@@ -53,7 +113,7 @@ The package creates a `telemetry-chopper` system account, installs the service a
 
 The files in `/etc/telemetry-chopper` can be read only by root and the service.
 
-### Send telemetry to your backend
+## Send telemetry to your backend
 
 1. Open `/etc/telemetry-chopper/config.yaml` and replace the `debug` exporter with your backend, for example:
 
@@ -82,7 +142,7 @@ The files in `/etc/telemetry-chopper` can be read only by root and the service.
 
 To edit rules, change `/etc/telemetry-chopper/rules.yaml` and save it. There's nothing to reload; see [Change rules](../rules/rules-file.md#change-rules).
 
-### Check that it's running
+## Check that it's running
 
 ```bash
 systemctl status telemetry-chopper
@@ -91,39 +151,6 @@ curl -s http://127.0.0.1:8888/metrics | grep chopper_filter
 ```
 
 The journal shows `chopper_filter rules file: ruleset updated` each time the rules change, and the metrics show what each rule matched and dropped.
-
-## Run from an archive
-
-Download and extract the archive for your platform: `linux` or `darwin` (macOS), with `amd64` or `arm64`.
-
-```bash
-OS=linux ARCH=amd64
-curl -fsSL "https://github.com/PRIYAM232/telemetry-chopper/releases/download/v${VERSION}/otelcol-chopper_${VERSION}_${OS}_${ARCH}.tar.gz" | tar xz
-CHOPPER_RULES_FILE=./rules.yaml ./otelcol-chopper --config config.yaml
-```
-
-On Windows, download `otelcol-chopper_<version>_windows_amd64.zip` from the release page and extract it, then run:
-
-```powershell
-$env:CHOPPER_RULES_FILE = ".\rules.yaml"
-.\otelcol-chopper.exe --config config.yaml
-```
-
-The archive contains the collector, `config.yaml`, the example `rules.yaml`, a short README and the license. The binaries aren't signed for macOS Gatekeeper; if macOS blocks a downloaded binary, run `xattr -d com.apple.quarantine otelcol-chopper` once.
-
-## Install with Homebrew
-
-```bash
-brew install --cask priyam232/tap/telemetry-chopper
-```
-
-Homebrew installs the `otelcol-chopper` binary only. Download a starting configuration and rules, then run it:
-
-```bash
-curl -fsSLO https://raw.githubusercontent.com/PRIYAM232/telemetry-chopper/main/deploy/packaging/config.yaml
-curl -fsSL -o rules.yaml https://raw.githubusercontent.com/PRIYAM232/telemetry-chopper/main/data-plane/config/rules.example.yaml
-CHOPPER_RULES_FILE=./rules.yaml otelcol-chopper --config config.yaml
-```
 
 ## Verify a download
 
@@ -149,6 +176,7 @@ Each archive also has a software bill of materials, `<archive>.sbom.json`, in SP
 
 Install the new version's package the same way. Your edited files in `/etc/telemetry-chopper` are kept, and the service restarts on the new version if it was running.
 
+- **Installed with the script:** run it again. It installs the latest release, and leaves your edited config and rules alone.
 - **Debian or Ubuntu:** `sudo dpkg -i` the new `.deb`.
 - **RPM:** `sudo dnf install` the new `.rpm` URL.
 - **Homebrew:** `brew upgrade --cask telemetry-chopper`.
@@ -179,4 +207,4 @@ Run `sudo -u telemetry-chopper otelcol-chopper validate --config /etc/telemetry-
 
 ### Is there an apt or yum repository?
 
-Not yet. Install from the release page, as shown above.
+Not yet. Use the install script or the release page, as shown above. The script fetches the latest release each time you run it, so re-running it upgrades the collector.
