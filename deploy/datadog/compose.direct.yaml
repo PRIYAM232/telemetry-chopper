@@ -1,0 +1,16 @@
+# Direct mode (DD_INTAKE=direct in .env): run.sh adds this file to
+# compose.yaml. The collector exports straight to Datadog's OTLP intake with
+# DD_API_KEY, and the Datadog Agent doesn't start (its "agent" profile is
+# never enabled).
+services:
+  otelcol-chopper:
+    volumes: !override
+      - ./otelcol-datadog-direct.yaml:/etc/otelcol/config.yaml:ro
+    environment:
+      DD_API_KEY: ${DD_API_KEY:?set DD_API_KEY in deploy/datadog/.env}
+      DD_SITE: ${DD_SITE:-datadoghq.com}
+    depends_on: !override
+      control-plane:
+        condition: service_healthy
+  datadog-agent:
+    profiles: [agent]
