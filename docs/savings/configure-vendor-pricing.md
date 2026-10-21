@@ -19,7 +19,7 @@ Find your negotiated prices in your vendor contract or billing console. Use the 
 1. On the dashboard, click **Pricing** in the header, or go to `/settings/pricing`.
 2. In **Observability vendor**, choose **Datadog**, **Splunk**, **New Relic** or **Custom**. For **Custom**, also enter a **Vendor name**, for example `Grafana Cloud`.
 3. Under **Ingest price, USD per GB**, enter prices for **Logs**, **Traces (spans)** and **Metrics**, with up to four decimal places (for example `0.10`). Enter `0` for a signal your vendor doesn't bill per GB, such as metrics billed per time series.
-4. Under **Indexing price, USD per million events**, enter prices for **Indexed log events** and **Indexed spans** (for example `2.04`). Leave them at `0` if your vendor doesn't charge separately for indexing.
+4. Under **Indexing price, USD per million events**, enter prices for **Indexed log events** and **Indexed spans** (for example `2.04`). Leave them at `0` if your vendor doesn't charge separately for indexing. Then enter the share of ingested events your vendor indexes in **Spans indexed, %** and **Log events indexed, %**. See [Indexed share](#indexed-share).
 5. Under **Metric series price, USD per 100 series per month**, enter your price if your vendor bills custom metrics by series (for example `5.00`, Datadog's monthly-plan list price). Set the metrics ingest price to `0` in that case, so metrics aren't priced twice. Leave it at `0` if your vendor bills metrics by volume.
 6. Under **Included span allowance per month**, enter the ingested span GB and indexed spans, in millions, that your plan includes each month. Datadog includes 150 GB and 1 million indexed spans per APM host (30 GB and 195,000 per Fargate task), pooled across your account, so with 10 APM hosts enter `1500` and `10`. Leave both at `0` if your plan has no allowance.
 7. Click **Save rate card**.
@@ -31,7 +31,7 @@ The dashboard's savings now use your prices, and the savings card names your ven
 | Saving | Calculated as |
 |---|---|
 | Ingest | GB dropped × ingest price, for each signal |
-| Indexing | (events dropped + events kept out of the index) ÷ 1,000,000 × indexing price, for spans and logs |
+| Indexing | (events dropped + events kept out of the index) ÷ 1,000,000 × indexing price × indexed share, for spans and logs |
 | Metric series | series-hours dropped ÷ 730 ÷ 100 × series price |
 | Spans, with an allowance | for each billing month, what the vendor bills above the allowance without Telemetry Chopper minus what it bills with it |
 
@@ -40,6 +40,14 @@ For example, with logs at $0.10 per GB and $2.50 per million indexed events, dro
 Series-billing vendors count a month's custom metrics as the average number of distinct series per hour. A **series-hour** is one series dropped for one hour, and a month has 730 hours. So with Datadog's $5.00 per 100 series, rules that drop 1,000 series for a whole month save $50.00, and rules that drop them for one day save about $1.64.
 
 For the complete formulas, see [How savings are calculated](calculations.md).
+
+### Indexed share
+
+Vendors don't always index everything they ingest. Datadog indexes spans only through retention filters, which usually keep a small sample. Dropping a span then only saves indexing if the span would have been kept. The **indexed share** tells Telemetry Chopper what fraction would have been, and indexing savings are multiplied by it.
+
+To find your share of spans indexed in Datadog, divide `datadog.estimated_usage.apm.indexed_spans` by `datadog.estimated_usage.apm.ingested_spans` over a month. For logs, the share is usually 100% unless index exclusion filters already drop some of them.
+
+For example, with indexed spans at $2.04 per million and 5% of spans indexed, dropping 10 million spans saves $1.02 in indexing, not $20.40.
 
 ### Span allowances
 
@@ -50,7 +58,7 @@ For example, with a 1,500 GB allowance at $0.10 per GB, a month with 1,200 GB fo
 ## Considerations
 
 - There is one rate card per fleet.
-- Indexing savings assume your vendor would otherwise index every event it ingests. If you already exclude some data from indexing on the vendor side, indexing savings are overstated by that share.
+- The indexed share is an average. If your rules drop events that your vendor indexes more or less often than average, for example errors that a retention filter always keeps, indexing savings for them are under- or overstated.
 - If your vendor has several index tiers with different prices, use the price of the tier your data would have landed in.
 - GB means decimal gigabytes (10⁹ bytes), the unit vendors bill in.
 - A **metric series** is a metric name plus one combination of datapoint attributes and the resource's `host.name`, which vendors such as Datadog turn into the `host` tag. Other resource attributes aren't included, because vendors only turn some of them into tags. Series savings therefore err low rather than high.

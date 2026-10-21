@@ -69,7 +69,10 @@ export function SavingsBreakdown({
       label: "Indexing savings",
       usd: savings.indexing.total,
       detail: indexingPriced
-        ? `${integerFmt.format(savings.indexing.droppedEvents)} dropped + ${integerFmt.format(savings.indexing.unindexedEvents)} excluded events never indexed`
+        ? `${integerFmt.format(savings.indexing.droppedEvents)} dropped + ${integerFmt.format(savings.indexing.unindexedEvents)} excluded events never indexed` +
+          (rateCard.tracesIndexedSharePct < 100 || rateCard.logsIndexedSharePct < 100
+            ? `, priced at the share your vendor indexes (spans ${seriesFmt.format(rateCard.tracesIndexedSharePct)}%, logs ${seriesFmt.format(rateCard.logsIndexedSharePct)}%)`
+            : "")
         : "Not priced: your rate card has no indexing price",
       swatch: "bg-[#eb6834] dark:bg-[#d95926]",
     },

@@ -262,6 +262,13 @@ model PricingConfig {
   tracesIncludedGbPerMonth              Decimal @default(0) @db.Decimal(14, 3)
   tracesIncludedIndexedMillionsPerMonth Decimal @default(0) @db.Decimal(14, 3)
 
+  // Percent of ingested spans / log events the vendor would index without
+  // Telemetry Chopper. Datadog indexes spans only through retention filters,
+  // often a small sample, so dropping a span saves indexing only at this
+  // rate. 100 = every ingested event is indexed.
+  tracesIndexedSharePct Decimal @default(100) @db.Decimal(5, 2)
+  logsIndexedSharePct   Decimal @default(100) @db.Decimal(5, 2)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

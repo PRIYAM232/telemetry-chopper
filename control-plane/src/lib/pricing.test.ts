@@ -48,6 +48,25 @@ describe("computeSavings", () => {
     expect(s.series.total).toBeCloseTo((200 * 24) / HOURS_PER_BILLING_MONTH / 100 * 5);
   });
 
+  it("prices indexing only at the share of events the vendor indexes", () => {
+    // Datadog retention filters keep 5% of spans; logs are all indexed.
+    const s = computeSavings(
+      {
+        ...nothingDropped,
+        droppedEvents: { traces: 10e6, logs: 1e6 },
+        unindexedEvents: { traces: 0, logs: 1e6 },
+      },
+      { ...datadog, tracesIndexedSharePct: 5, logsIndexedSharePct: 100 },
+    );
+    expect(s.indexing.traces).toBeCloseTo(1.02); // 10M x 5% x $2.04
+    expect(s.indexing.logs).toBeCloseTo(4.08); // 2M x $2.04
+  });
+
+  it("treats a missing indexed share as 100%", () => {
+    const s = computeSavings({ ...nothingDropped, droppedEvents: { traces: 1e6, logs: 0 } }, datadog);
+    expect(s.indexing.traces).toBeCloseTo(2.04);
+  });
+
   it("saves nothing on series when the rate card has no series price", () => {
     const s = computeSavings(
       { ...nothingDropped, droppedSeriesHours: 5000 },

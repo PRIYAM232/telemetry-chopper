@@ -74,6 +74,21 @@ export async function savePricing(
     prices[key] = Number(raw);
   }
 
+  // Indexed shares: percent of ingested events the vendor indexes,
+  // NUMERIC(5, 2) in [0, 100]. Blank reads as 100.
+  const shares: Record<string, number> = {};
+  for (const [key, label] of [
+    ["tracesIndexedSharePct", "share of spans indexed"],
+    ["logsIndexedSharePct", "share of log events indexed"],
+  ] as const) {
+    const raw = (formString(formData, key) || "100").replace(/%$/, "");
+    const value = Number(raw);
+    if (!/^\d{1,3}(\.\d{1,2})?$/.test(raw) || value > 100) {
+      return fail(`${label} must be a percentage from 0 to 100 with at most 2 decimal places, e.g. 5`);
+    }
+    shares[key] = value;
+  }
+
   // Monthly span allowance: NUMERIC(14, 3), in GB and millions of spans.
   const allowance: Record<string, number> = {};
   for (const [key, label, example] of [
@@ -98,6 +113,8 @@ export async function savePricing(
     metricsPricePer100Series: prices.metricsPricePer100Series,
     tracesIncludedGbPerMonth: allowance.tracesIncludedGbPerMonth,
     tracesIncludedIndexedMillionsPerMonth: allowance.tracesIncludedIndexedMillionsPerMonth,
+    tracesIndexedSharePct: shares.tracesIndexedSharePct,
+    logsIndexedSharePct: shares.logsIndexedSharePct,
   };
   await saveRateCard(fleetId, rateCard);
   await recordAudit({ operator, action: AuditAction.RATE_CARD_UPDATED, fleetId, details: rateCard });

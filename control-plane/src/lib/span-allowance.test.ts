@@ -47,6 +47,15 @@ describe("monthSpanSavings", () => {
     expect(s.indexing).toBeCloseTo(6.12); // 3M x $2.04
   });
 
+  it("counts only the indexed share of spans against the indexing allowance", () => {
+    const usage = month({ forwardedBytes: 0, droppedBytes: 0, received: 13e6, dropped: 3e6, unindexed: 1e6 });
+    // 10M included, 50% indexed: 6.5M would have been indexed, inside the allowance.
+    expect(monthSpanSavings(usage, tenHosts, { ...prices, tracesIndexedSharePct: 50 }).indexing).toBe(0);
+    // 1M included, 10% indexed: 1.3M without Chopper, 0.9M with -> 0.3M saved.
+    const oneHost = { tracesIncludedGbPerMonth: 150, tracesIncludedIndexedMillionsPerMonth: 1 };
+    expect(monthSpanSavings(usage, oneHost, { ...prices, tracesIndexedSharePct: 10 }).indexing).toBeCloseTo(0.612);
+  });
+
   it("gives a window its share of the month's savings", () => {
     const s = monthSpanSavings(
       month({
