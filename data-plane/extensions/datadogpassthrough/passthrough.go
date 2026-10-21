@@ -1,8 +1,10 @@
 package datadogpassthrough
 
 import (
+	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -37,6 +39,9 @@ type passthrough struct {
 	requests  metric.Int64Counter // nil when self-metrics are off
 	info      agentInfoCache
 	lastWarn  atomic.Int64 // unix nanos of the last unreachable warning
+	// warnedDecompressed is set once the receiver's decompression has been
+	// reported (see rewrittenByDecompressor).
+	warnedDecompressed atomic.Bool
 }
 
 var (
@@ -168,6 +173,9 @@ func isTraceIntake(path string) bool {
 func (p *passthrough) forward(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), p.cfg.Timeout)
 	defer cancel()
+	if rewrittenByDecompressor(r) {
+		p.recompress(r)
+	}
 	sw := &statusWriter{ResponseWriter: w}
 	p.proxy.ServeHTTP(sw, r.WithContext(ctx))
 	if p.requests != nil {
@@ -176,6 +184,42 @@ func (p *passthrough) forward(w http.ResponseWriter, r *http.Request) {
 			attribute.String("result", sw.result()),
 		))
 	}
+}
+
+// rewrittenByDecompressor reports whether confighttp decompressed r before
+// the middleware saw it. confighttp decodes a compressed body and drops its
+// Content-Encoding and Content-Length unless the receiver sets
+// `compression_algorithms: []`, and some Datadog intakes reject what the
+// Agent then forwards (Data Streams Monitoring answers "Encoding should be
+// gzip"). Over HTTP/1.x a request body of unknown length is always chunked,
+// so a body with no length that isn't chunked can only be the decompressor's.
+func rewrittenByDecompressor(r *http.Request) bool {
+	return r.ProtoMajor == 1 && r.ContentLength == -1 && len(r.TransferEncoding) == 0
+}
+
+// recompress gzips a body the receiver decompressed, so the Agent gets a
+// compressed payload again. gzip is what every Datadog intake accepts; the
+// original encoding is gone by now. The receiver setting keeps the original
+// bytes instead, so say so once.
+func (p *passthrough) recompress(r *http.Request) {
+	if p.warnedDecompressed.CompareAndSwap(false, true) {
+		p.logger.Warn("the datadog receiver decompressed a request before forwarding it to the Datadog Agent; "+
+			"re-compressing with gzip. Set `compression_algorithms: []` on the datadog receiver to forward the original bytes",
+			zap.String("path", r.URL.Path))
+	}
+	body := r.Body
+	pr, pw := io.Pipe()
+	go func() {
+		gz := gzip.NewWriter(pw)
+		_, err := io.Copy(gz, body)
+		if cerr := gz.Close(); err == nil {
+			err = cerr
+		}
+		_ = body.Close()
+		_ = pw.CloseWithError(err)
+	}()
+	r.Body = pr
+	r.Header.Set("Content-Encoding", "gzip")
 }
 
 // proxyError answers a request the Agent couldn't take with 502, so the

@@ -22,6 +22,9 @@ receivers:
     endpoint: 0.0.0.0:8126
     middlewares:
       - id: chopper_datadog_passthrough
+    # Forward compressed payloads as they came: Datadog's Data Streams
+    # intake rejects uncompressed ones. Tracers don't compress traces.
+    compression_algorithms: []
 
 extensions:
   # The Agent the datadog receiver hands non-trace requests to: its own trace

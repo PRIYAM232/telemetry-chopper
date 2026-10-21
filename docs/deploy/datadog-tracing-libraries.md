@@ -63,6 +63,7 @@ receivers:
     endpoint: 0.0.0.0:8126
     middlewares:
       - id: chopper_datadog_passthrough
+    compression_algorithms: []   # forward compressed payloads as they came
 
 extensions:
   chopper_datadog_passthrough:
@@ -119,6 +120,8 @@ Traces never take this path. The collector neither forwards nor advertises the A
 
 To turn it on, set `collector.datadogReceiver.agentPassthrough.endpoint` in the Helm chart, or add the extension to your own configuration, as shown above. The endpoint is the Agent's trace port as `http://host:8126`, or its Unix socket as `unix:///var/run/datadog/apm.socket` when the collector runs on the Agent's host. `timeout` (default `30s`) bounds each forwarded request.
 
+Set `compression_algorithms: []` on the datadog receiver, as the Helm chart does. By default the receiver decompresses request bodies before the passthrough sees them, and some Datadog intakes reject uncompressed payloads: Data Streams Monitoring answers `Encoding should be gzip`. With the setting, compressed requests reach the Agent exactly as the tracer sent them. Without it, the passthrough compresses them again with gzip and logs a warning once. Traces aren't affected either way: tracing libraries don't compress traces.
+
 ## Write rules for Datadog spans
 
 Rules see the converted spans. The receiver renames common Datadog tags to their OpenTelemetry names, so write conditions with the OpenTelemetry name:
@@ -166,7 +169,7 @@ A REDACT rule on `dd.span.Resource` also masks the resource name Datadog shows, 
 - **Only your rules see traces; everything else goes to the Agent as is.** Rules don't apply to profiles, Data Streams Monitoring or the other forwarded requests, and they don't show up in savings.
 - **An Agent outage doesn't affect traces.** If the Agent can't be reached, forwarded requests fail with `502 Bad Gateway` (`504 Gateway Timeout` after `timeout`), and the tracer reports or retries them as it would with the Agent down. Traces still go through your rules to the OTLP exporter. The collector logs a warning at most once a minute. Tracers that start while the Agent is down see only the trace endpoints in `/info` and leave the other features off until they ask again.
 - **The Agent sees requests from the collector.** It identifies the sending container from the `Datadog-Container-ID` and `Datadog-Entity-ID` headers tracers send, which the collector passes on. Origin detection that relies on the tracer's own Unix socket connection to the Agent isn't available.
-- **Request size.** The datadog receiver accepts request bodies up to 20 MiB after decompression, forwarded requests included, and forwards them uncompressed. Profiles are usually far smaller. To accept larger ones, raise the receiver's `max_request_body_size`.
+- **Request size.** The datadog receiver accepts request bodies up to 20 MiB, forwarded requests included (measured as sent with `compression_algorithms: []`, after decompression without it). Profiles are usually far smaller. To accept larger ones, raise the receiver's `max_request_body_size`.
 - **Anyone who can reach the collector's port 8126 can reach the Agent's trace API through it**, as they could reach the Agent itself. Expose the port only inside your network, as you would the Agent's.
 - **Trace metrics change with your rules.** A DROP, SAMPLE or THROTTLE rule on real traffic lowers the request counts and error rates Datadog shows for the service, because the Agent computes them from what it receives. Dropping health checks is usually what you want. For sampling, see [Sample whole traces](../rules/README.md#sample-whole-traces).
 - **DROP removes matching spans only.** Child spans of a dropped span, such as the database query inside a health check, still reach Datadog without their parent. To remove whole traces, match a tag that every span of those traces carries.
