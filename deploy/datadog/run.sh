@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Datadog test harness driver. Usage: deploy/datadog/run.sh up|rules|send|send-ddtrace|check [run-id]|down
+# Datadog test harness driver. Usage: deploy/datadog/run.sh up|rules|send|send-ddtrace|send-ddextras|check [run-id]|down
 # Reads DD_API_KEY / DD_SITE (and optionally DD_APP_KEY for `check`) from
 # deploy/datadog/.env or the environment.
 set -euo pipefail
@@ -44,6 +44,15 @@ case "${1:-}" in
       -e DD_REMOTE_CONFIGURATION_ENABLED=false -e DD_INSTRUMENTATION_TELEMETRY_ENABLED=false \
       chopper-dd-ddtrace "${2:-}"
     ;;
+  send-ddextras)
+    # Profiler, Data Streams Monitoring, remote configuration and telemetry
+    # through the collector, which forwards them to the Agent
+    # (chopper_datadog_passthrough). Runs about 30 seconds.
+    docker build -q -t chopper-dd-ddtrace "$HERE/ddtrace" >/dev/null
+    docker run --rm --network chopper-dd_default \
+      -e DD_TRACE_AGENT_URL=http://otelcol-chopper:8126 -e DD_ENV=chopper-test \
+      --entrypoint python chopper-dd-ddtrace /send_ddextras.py "${2:-}"
+    ;;
   check)
     echo "== Collector (in: received, out: sent to Datadog Agent)"
     for s in spans log_records metric_points; do
@@ -52,6 +61,9 @@ case "${1:-}" in
         "$(metric otelcol_exporter_sent_$s 'otlp_grpc/datadog')"
     done
     printf '  %-14s %s\n' "send failures" "$(metric 'otelcol_exporter_send_failed_(spans|log_records|metric_points)' 'otlp_grpc/datadog')"
+    echo "== Forwarded to the Datadog Agent by the passthrough (product/result: requests)"
+    curl -s 127.0.0.1:18898/metrics | grep -E '^otelcol_chopper_datadog_passthrough_requests[{ ]' |
+      sed -E 's/.*product="([^"]*)".*result="([^"]*)".* ([0-9.e+]+)$/  \1\/\2: \3/' | sort || true
     echo "== Datadog Agent (totals since it started)"
     docker exec chopper-dd-agent agent status 2>/dev/null | grep -m1 -E 'API key ending with .*:' | sed -E 's/^ */  /'
     printf '  %-14s received %-6s sent to datadog %s (retries %s)\n' logs \

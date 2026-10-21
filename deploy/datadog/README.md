@@ -5,7 +5,8 @@ Runs Telemetry Chopper in front of a real Datadog account and proves, on the Dat
 ```
 send.py ─OTLP──────────────┐
 send-ddtrace (ddtrace) ─:8126─► Chopper collector ─OTLP gRPC─► Datadog Agent 7.84 ─► Datadog
-                                    │  rules from the control plane (:3022)
+send-ddextras ─────────────┘        │  │  rules from the control plane (:3022)
+                                    │  └─ profiles, DSM, remote config, telemetry ─:8126─► same Agent
                                     └─ ROUTE cold-storage → debug/cold (never leaves the machine)
 ```
 
@@ -19,6 +20,7 @@ deploy/datadog/run.sh up       # build and start (a few minutes the first time)
 deploy/datadog/run.sh rules    # add the test rules, wait until the collector enforces them
 deploy/datadog/run.sh send     # send one labelled batch; prints its run id
 deploy/datadog/run.sh send-ddtrace   # the same idea with Datadog's Python tracing library
+deploy/datadog/run.sh send-ddextras  # profiler, Data Streams, remote config and telemetry (about 30 s)
 deploy/datadog/run.sh check <run-id>
 deploy/datadog/run.sh down     # remove containers, volumes and built images
 ```
@@ -54,6 +56,12 @@ Each `send` posts 20 records per case, all tagged `chopper.test.run:<run-id>` an
 
 Operation names, resources and types match what the tracer produced, because the collector's `transform/datadog` step copies them into `operation.name` and `resource.name`. See [Filter traces from Datadog tracing libraries](../../docs/deploy/datadog-tracing-libraries.md).
 
+### Datadog features besides traces
+
+`send-ddextras` starts the same tracing library the way `ddtrace-run` does, with Continuous Profiler, Data Streams Monitoring, remote configuration and instrumentation telemetry on, and runs for about 25 seconds. It also sends 5 `worker.job` traces (service `chopper-dd-extras`, case `dd-extras-kept`). The collector's datadog receiver handles the traces; the `chopper_datadog_passthrough` extension forwards everything else to the Agent's port 8126 (`endpoint: http://datadog-agent:8126` in `otelcol-datadog.yaml`). It prints the endpoints the tracer found in the collector's `/info`.
+
+Where to look in Datadog: **APM → Profiles** for service `chopper-dd-extras`, and **Data Streams** for the `chopper-dd-orders` topic. `check` shows how many requests of each kind the collector forwarded and how the Agent answered.
+
 Datadog queries:
 
 - Logs: `@chopper.test.run:<run-id>`, grouped by `@chopper.test.case`
@@ -63,7 +71,7 @@ Datadog queries:
 
 To see EXCLUDE_INDEX save indexing cost, add an exclusion filter `@chopper.index:false` to your log index (Logs → Configuration → Indexes). The /healthz logs then still appear in Live Tail and count toward ingest, but they aren't indexed.
 
-`check` prints the collector's in and out counts, then the Agent's totals since it started: whether Datadog accepted the API key, logs received and sent to Datadog with retries, metric points received, and trace upload errors. With `DD_APP_KEY` set and a run id, it also counts logs and spans per case through the Datadog API. Indexing takes a minute or two.
+`check` prints the collector's in and out counts, the requests the passthrough forwarded to the Agent by Datadog feature and result, then the Agent's totals since it started: whether Datadog accepted the API key, logs received and sent to Datadog with retries, metric points received, and trace upload errors. With `DD_APP_KEY` set and a run id, it also counts logs and spans per case through the Datadog API. Indexing takes a minute or two.
 
 The Agent doesn't count spans that arrive over OTLP: its APM status shows "No traces received" and zero payloads even while it uploads them. `check` reports trace upload errors instead; count the spans in Datadog (with `DD_APP_KEY`, or in APM under `service:chopper-dd-test`).
 
@@ -79,6 +87,14 @@ One `send` on a new account (site `datadoghq.com`), Agent 7.84.4:
 - Collector: 50 Datadog spans received on the datadog receiver, 40 sent to the Agent (5 /healthz and 5 404 root spans dropped), 0 send failures.
 - What the Agent sent: 30 spans. The 10 `dd-p0-userreject` spans were dropped by the Agent. `flask.request` / `GET /checkout` / `web` and `postgres.query` / `SELECT * FROM orders` / `sql`, as the tracer produced them; 0 spans containing the raw email.
 - Without `transform/datadog`, the same spans arrived as `http.server.request` and `client.request`, and the query's resource was replaced by its operation name.
+
+`send-ddtrace` then `send-ddextras`, with the Agent's trace, profiling, telemetry, debugger and symbol database output going to the stand-in intake (`DD_APM_DD_URL`, `DD_APM_PROFILING_DD_URL`, `DD_APM_TELEMETRY_DD_URL` and so on; telemetry needs `https`, so the stand-in served TLS with `DD_SKIP_SSL_VALIDATION=true`):
+
+- Collector `/info`: the receiver's 5 trace endpoints plus the Agent's 19 others (`/profiling/v1/input`, `/v0.1/pipeline_stats`, `/v0.7/config`, `/telemetry/proxy/`, `/evp_proxy/v4/`, `/debugger/v1/input`…), without the Agent's `/v1.0/traces` and `/v0.6/stats`, and `client_drop_p0s: false`. The tracer printed the same list.
+- Passthrough counter: profiling 3, data_streams 3 and telemetry 8 answered 2xx; remote_config 26 answered 4xx: this Agent has no remote configuration service and answered the same 404 when called directly.
+- What the Agent sent on: 3 profile uploads (`event.json`, `code-provenance.json`, `profile.pprof`), 3 Data Streams payloads, and the tracer's telemetry (`app-started`, `app-heartbeat`, `app-dependencies-loaded`, `app-closing` and others).
+- Traces: 55 spans received on the datadog receiver, 45 sent to the Agent, 35 sent on by the Agent, the same per-case results as `send-ddtrace` alone plus 5 `worker.job`; 0 spans containing the raw email.
+- Agent stopped: a profile upload got `502` in 36 ms, `/info` answered with the trace endpoints only, the collector logged one warning, and the datadog receiver still accepted all 50 spans of another `send-ddtrace`.
 
 ## Reference run (placeholder API key, 2026-10-20)
 
