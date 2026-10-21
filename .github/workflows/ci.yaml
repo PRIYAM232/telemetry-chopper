@@ -120,6 +120,8 @@ jobs:
         env:
           CHOPPER_FLEET_KEY: ci
           POD_NAME: ci
+          DD_API_KEY: ci
+          DD_SITE: datadoghq.com
         run: |
           helm template chopper deploy/helm/telemetry-chopper \
             --set collector.datadogReceiver.enabled=true \
@@ -130,7 +132,8 @@ jobs:
             | sed -n '/otelcol-k8s.yaml: |/,$p' | tail -n +2 | sed 's/^    //' \
             > "$RUNNER_TEMP/otelcol-k8s.yaml"
           for f in data-plane/config/otelcol-dev.yaml deploy/docker/otelcol-docker.yaml \
-                   deploy/datadog/otelcol-datadog.yaml "$RUNNER_TEMP/otelcol-k8s.yaml"; do
+                   deploy/datadog/otelcol-datadog.yaml deploy/datadog/otelcol-datadog-direct.yaml \
+                   "$RUNNER_TEMP/otelcol-k8s.yaml"; do
             echo "== $f"
             data-plane/dist/otelcol-chopper validate --config "$f"
           done

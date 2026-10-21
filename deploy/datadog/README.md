@@ -10,7 +10,7 @@ send-ddextras ─────────────┘        │  │  rules 
                                     └─ ROUTE cold-storage → debug/cold (never leaves the machine)
 ```
 
-The collector ships no Datadog exporter, so it sends OTLP to a Datadog Agent with OTLP ingest enabled. That Agent is the supported OTLP path into Datadog. The stack runs as compose project `chopper-dd` on its own ports (control plane 3022, OTLP 14427/14428, collector self-metrics 18898), so it doesn't collide with the quick start. The collector's Datadog receiver is also published on 127.0.0.1:18126, for a tracer running on your machine.
+By default the collector sends OTLP to a Datadog Agent with OTLP ingest enabled. In [direct mode](#direct-mode-no-datadog-agent) it sends straight to Datadog's OTLP intake instead, and no Agent runs. The stack runs as compose project `chopper-dd` on its own ports (control plane 3022, OTLP 14427/14428, collector self-metrics 18898), so it doesn't collide with the quick start. The collector's Datadog receiver is also published on 127.0.0.1:18126, for a tracer running on your machine.
 
 ## Run it
 
@@ -24,6 +24,23 @@ deploy/datadog/run.sh send-ddextras  # profiler, Data Streams, remote config and
 deploy/datadog/run.sh check <run-id>
 deploy/datadog/run.sh down     # remove containers, volumes and built images
 ```
+
+## Direct mode (no Datadog Agent)
+
+Datadog also accepts OTLP directly at `https://otlp.<DD_SITE>/v1/traces`, `/v1/logs` and `/v1/metrics`, authenticated with your API key. To test that path, set `DD_INTAKE=direct` in `deploy/datadog/.env` and run `run.sh up` again:
+
+```
+send.py ─OTLP──────────────┐
+send-ddtrace (ddtrace) ─:8126─► Chopper collector ─OTLP/HTTP + dd-api-key─► otlp.<DD_SITE> ─► Datadog
+```
+
+- The collector uses [`otelcol-datadog-direct.yaml`](otelcol-datadog-direct.yaml): one `otlp_http` exporter per signal with a `dd-api-key` header. Traces also send `compute_stats: true`, since Datadog doesn't compute trace metrics for this intake by default, and `dd-otel-span-mapping` with `span_name_as_resource_name: false` to name resources the way the Agent does.
+- The Agent container is removed. Set `DD_INTAKE=agent`, or delete the line, and run `run.sh up` to go back.
+- `check` reports what the intake accepted. The intake answers success only after checking the API key (a wrong key gets `403`), and `check` counts rejected batches with their last error.
+- `send-ddextras` refuses to run: there's no Agent to forward profiles, Data Streams or remote configuration to, so the collector discards them.
+- The intake accepts delta metrics only. `send.py` sends gauges, which are fine; an SDK's cumulative sums would be rejected.
+- Datadog's documentation lists the traces intake as a preview that your Customer Success Manager enables. A new account on `datadoghq.com` accepted traces (2026-10-20), but check in APM that they appear.
+- Traces that a Datadog tracer marked as not kept (`dd-p0-userreject`) are sent to the intake. In agent mode the Agent drops them; check in APM whether Datadog does too.
 
 ## What gets sent and what Datadog should show
 
@@ -95,6 +112,14 @@ One `send` on a new account (site `datadoghq.com`), Agent 7.84.4:
 - What the Agent sent on: 3 profile uploads (`event.json`, `code-provenance.json`, `profile.pprof`), 3 Data Streams payloads, and the tracer's telemetry (`app-started`, `app-heartbeat`, `app-dependencies-loaded`, `app-closing` and others).
 - Traces: 55 spans received on the datadog receiver, 45 sent to the Agent, 35 sent on by the Agent, the same per-case results as `send-ddtrace` alone plus 5 `worker.job`; 0 spans containing the raw email.
 - Agent stopped: a profile upload got `502` in 36 ms, `/info` answered with the trace endpoints only, the collector logged one warning, and the datadog receiver still accepted all 50 spans of another `send-ddtrace`.
+
+## Reference run (direct mode, real Datadog account, 2026-10-20)
+
+`send` and `send-ddtrace` with `DD_INTAKE=direct`, no Agent:
+
+- Collector: spans 110 received (60 OTLP + 50 from ddtrace) → 60 accepted by `otlp.datadoghq.com`, logs 100 → 60, metric points 2 → 1, 0 send failures, 0 rejected batches.
+- The same requests with a wrong API key got `403` for traces, logs and metrics.
+- `send-ddextras` exits with an error, as intended. Switching back to agent mode and sending again: spans 60 → 20, logs 60 sent by the Agent, 0 upload errors.
 
 ## Reference run (placeholder API key, 2026-10-20)
 
