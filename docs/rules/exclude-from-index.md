@@ -22,7 +22,7 @@ The **EXCLUDE_INDEX** action lets you keep sending data your vendor needs for li
 
 - Only the matching record is marked, not its neighbors from the same service.
 - Evaluation continues after an EXCLUDE_INDEX rule. If a later rule drops the record, it counts as dropped, which saves ingest and indexing, rather than as excluded.
-- The dashboard counts each forwarded, marked record as one event of **indexing savings**, priced at your indexing rate for that signal. Excluded records save no ingest or egress, because they are still sent.
+- The dashboard counts each forwarded, marked record as one event of **indexing savings**, priced at your indexing rate for that signal times its indexed share. Excluded records save no ingest or egress, because they are still sent.
 
 ## What it saves compared with dropping
 
@@ -34,7 +34,7 @@ The **EXCLUDE_INDEX** action lets you keep sending data your vendor needs for li
 
 ## Considerations
 
-- Indexing savings assume your vendor would otherwise have indexed every event it ingested. If you already exclude some data on the vendor side, the dashboard overstates indexing savings by that share.
+- Indexing savings are multiplied by the **indexed share** on your rate card: the fraction of events your vendor would have indexed anyway. Set it if you already exclude some data on the vendor side, or the dashboard overstates indexing savings. See [Indexed share](../savings/configure-vendor-pricing.md#indexed-share).
 - The rate card holds one indexing price per signal. If your vendor has several index tiers (for example 3-day and 15-day retention), use the price of the tier the data would have gone to.
 
 ## Frequently asked questions

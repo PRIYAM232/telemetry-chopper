@@ -20,6 +20,7 @@ Your settings provide:
 |---|---|
 | Ingest price per GB, per signal | *r* |
 | Indexing price per million events, for spans and logs | *i* |
+| Share of ingested events the vendor indexes, for spans and logs | *p* |
 | Metric series price per 100 series per month | *s* |
 | Included ingested span GB per month | *A* |
 | Included indexed spans per month | *A*ᵢ |
@@ -36,7 +37,7 @@ For each signal:
 
 ```
 ingest savings   = dropped GB × r
-indexing savings = (dropped events + unindexed events) ÷ 1,000,000 × i     (spans and logs only)
+indexing savings = (dropped events + unindexed events) ÷ 1,000,000 × i × p     (spans and logs only)
 ```
 
 For metrics, when the rate card has a series price:
@@ -51,7 +52,7 @@ For spans, when the rate card has a span allowance, each billing month is priced
 
 ```
 span ingest savings   = (max(0, forwarded GB + dropped GB − A) − max(0, forwarded GB − A)) × r
-span indexing savings = (max(0, received − Aᵢ) − max(0, received − dropped − unindexed − Aᵢ)) ÷ 1,000,000 × i
+span indexing savings = (max(0, received × p − Aᵢ) − max(0, (received − dropped − unindexed) × p − Aᵢ)) ÷ 1,000,000 × i
 ```
 
 A time range gets each month's savings in proportion to the dropped bytes (for ingest) and dropped plus unindexed spans (for indexing) that fall inside it. With *A* and *A*ᵢ at 0, these reduce to the formulas above.

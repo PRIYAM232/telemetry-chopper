@@ -17,7 +17,7 @@
 // the fraction of the month's dropped bytes (or saved index events) that fell
 // inside it. Months still in progress use their usage so far.
 
-import { BYTES_PER_GB, type Savings } from "@/lib/pricing";
+import { BYTES_PER_GB, shareOf, type Savings } from "@/lib/pricing";
 import { billingPeriod } from "@/lib/overage";
 import { prisma } from "@/lib/prisma";
 
@@ -50,6 +50,8 @@ export type MonthSpanUsage = {
 export type SpanPrices = {
   tracesPricePerGb: number;
   tracesIndexPricePerMillion: number;
+  // Percent of ingested spans the vendor would index; absent reads as 100.
+  tracesIndexedSharePct?: number;
 };
 
 /** A month's ingest and indexing savings on spans, scaled to the window's share. */
@@ -65,9 +67,12 @@ export function monthSpanSavings(
     prices.tracesPricePerGb;
 
   const includedEvents = allowance.tracesIncludedIndexedMillionsPerMonth * 1_000_000;
-  const indexedWith = Math.max(0, m.received - m.dropped - m.unindexed);
+  // Only the indexed share of spans counts against the indexing allowance.
+  const share = shareOf(prices.tracesIndexedSharePct);
+  const indexedWithout = m.received * share;
+  const indexedWith = Math.max(0, m.received - m.dropped - m.unindexed) * share;
   const indexingMonth =
-    ((billable(m.received, includedEvents) - billable(indexedWith, includedEvents)) / 1_000_000) *
+    ((billable(indexedWithout, includedEvents) - billable(indexedWith, includedEvents)) / 1_000_000) *
     prices.tracesIndexPricePerMillion;
 
   const savedEvents = m.dropped + m.unindexed;

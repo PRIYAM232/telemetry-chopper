@@ -146,6 +146,33 @@ export function PricingForm({
           EXCLUDE_INDEX rule keeps out of the index save indexing only. Leave 0 if your
           vendor doesn&apos;t bill indexing separately.
         </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {(
+            [
+              ["tracesIndexedSharePct", "Spans indexed, %"],
+              ["logsIndexedSharePct", "Log events indexed, %"],
+            ] as const
+          ).map(([name, label]) => (
+            <Field key={name} label={label}>
+              <input
+                name={name}
+                inputMode="decimal"
+                pattern="\d{1,3}(\.\d{1,2})?"
+                title="Percent of ingested events your vendor indexes, from 0 to 100 (e.g. 5)"
+                defaultValue={String(card[name])}
+                className={`${inputClass} tabular-nums`}
+              />
+            </Field>
+          ))}
+        </div>
+        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+          The share of ingested events your vendor would index without Telemetry Chopper.
+          Datadog indexes spans only through retention filters, usually a small sample:
+          divide <code>datadog.estimated_usage.apm.indexed_spans</code> by{" "}
+          <code>datadog.estimated_usage.apm.ingested_spans</code> over a month. Logs are
+          usually 100% unless index exclusion filters already drop some.
+          Dropped and excluded events save indexing only at this rate.
+        </p>
       </fieldset>
 
       <fieldset className="flex flex-col gap-3">

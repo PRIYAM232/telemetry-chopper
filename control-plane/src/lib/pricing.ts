@@ -47,13 +47,26 @@ export type IndexPrices = {
   logsIndexPricePerMillion: number;
 };
 
+// Percent of ingested spans / log events the vendor would index without
+// Telemetry Chopper (Datadog indexes spans only through retention filters).
+// A dropped or excluded event saves indexing only at this rate.
+export type IndexedShares = {
+  tracesIndexedSharePct: number;
+  logsIndexedSharePct: number;
+};
+
+// Optional shares read as 100%: every ingested event would be indexed.
+export function shareOf(pct: number | undefined): number {
+  return (pct ?? 100) / 100;
+}
+
 // USD per 100 metric series per month, for vendors that bill custom metrics
 // by series (Datadog). 0 = the vendor doesn't.
 export type SeriesPrice = { metricsPricePer100Series: number };
 
 // A plain, serializable view of PricingConfig (Prisma Decimals can't cross
 // into client components). vendor is null while the fleet runs on defaults.
-export type RateCard = SignalPrices & IndexPrices & SeriesPrice & SpanAllowance & {
+export type RateCard = SignalPrices & IndexPrices & IndexedShares & SeriesPrice & SpanAllowance & {
   vendor: ObservabilityVendor | null;
   customVendorName: string | null;
 };
@@ -70,6 +83,8 @@ export const DEFAULT_RATE_CARD: RateCard = {
   metricsPricePer100Series: 0,
   tracesIncludedGbPerMonth: 0,
   tracesIncludedIndexedMillionsPerMonth: 0,
+  tracesIndexedSharePct: 100,
+  logsIndexedSharePct: 100,
 };
 
 export function rateCardLabel(card: RateCard): string {
@@ -94,6 +109,8 @@ export async function getRateCard(fleetId: string): Promise<RateCard> {
     metricsPricePer100Series: row.metricsPricePer100Series.toNumber(),
     tracesIncludedGbPerMonth: row.tracesIncludedGbPerMonth.toNumber(),
     tracesIncludedIndexedMillionsPerMonth: row.tracesIncludedIndexedMillionsPerMonth.toNumber(),
+    tracesIndexedSharePct: row.tracesIndexedSharePct.toNumber(),
+    logsIndexedSharePct: row.logsIndexedSharePct.toNumber(),
   };
 }
 
@@ -115,6 +132,8 @@ export async function saveRateCard(
     metricsPricePer100Series: card.metricsPricePer100Series,
     tracesIncludedGbPerMonth: card.tracesIncludedGbPerMonth,
     tracesIncludedIndexedMillionsPerMonth: card.tracesIncludedIndexedMillionsPerMonth,
+    tracesIndexedSharePct: card.tracesIndexedSharePct,
+    logsIndexedSharePct: card.logsIndexedSharePct,
   };
   await prisma.pricingConfig.upsert({
     where: { fleetId },
@@ -165,7 +184,7 @@ export const HOURS_PER_BILLING_MONTH = 730;
 
 export function computeSavings(
   input: SavingsInput,
-  card: SignalPrices & IndexPrices & Partial<SeriesPrice>,
+  card: SignalPrices & IndexPrices & Partial<IndexedShares> & Partial<SeriesPrice>,
 ): Savings {
   const { droppedBytes: b, droppedEvents: d, unindexedEvents: u } = input;
   const ingest = {
@@ -176,8 +195,12 @@ export function computeSavings(
   };
   ingest.total = ingest.traces + ingest.logs + ingest.metrics;
   const indexing = {
-    traces: ((d.traces + u.traces) / EVENTS_PER_MILLION) * card.tracesIndexPricePerMillion,
-    logs: ((d.logs + u.logs) / EVENTS_PER_MILLION) * card.logsIndexPricePerMillion,
+    traces:
+      ((d.traces + u.traces) / EVENTS_PER_MILLION) *
+      card.tracesIndexPricePerMillion *
+      shareOf(card.tracesIndexedSharePct),
+    logs:
+      ((d.logs + u.logs) / EVENTS_PER_MILLION) * card.logsIndexPricePerMillion * shareOf(card.logsIndexedSharePct),
     total: 0,
     droppedEvents: d.traces + d.logs,
     unindexedEvents: u.traces + u.logs,
