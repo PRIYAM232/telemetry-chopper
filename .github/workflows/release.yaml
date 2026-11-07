@@ -196,6 +196,7 @@ jobs:
           args: release --clean --parallelism 1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional: a token that can push to PRIYAM232/homebrew-tap. Without
+          # Optional: the private half of a deploy key with write access to
+          # PRIYAM232/homebrew-tap (see deploy/packaging/README.md). Without
           # it the Homebrew cask is skipped and everything else still ships.
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}

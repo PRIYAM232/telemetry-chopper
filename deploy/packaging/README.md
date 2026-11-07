@@ -38,8 +38,16 @@ CI runs the same snapshot on every pull request (`collector-packages` in `ci.yam
 
 Pushing a `v*.*.*` tag runs `collector-packages` in [`release.yaml`](../../.github/workflows/release.yaml): govulncheck on the generated collector module, then GoReleaser builds, signs `checksums.txt` with cosign (keyless, the workflow's OIDC identity), generates SBOMs and creates the GitHub Release.
 
-The Homebrew cask is published only when the `HOMEBREW_TAP_TOKEN` Actions secret is set. To enable it:
+The Homebrew cask is pushed to [`PRIYAM232/homebrew-tap`](https://github.com/PRIYAM232/homebrew-tap) only when the `HOMEBREW_TAP_DEPLOY_KEY` Actions secret is set; without it, releases still publish everything else. It uses an SSH deploy key: write access to the tap repository and nothing else, with no expiry, unlike a personal access token. To set it up once:
 
-1. Create the public repository `PRIYAM232/homebrew-tap`.
-2. Create a fine-grained token with **Contents: read and write** on that repository only.
-3. Add it as the `HOMEBREW_TAP_TOKEN` secret of this repository.
+```bash
+gh repo create PRIYAM232/homebrew-tap --public --add-readme --description "Homebrew tap for Telemetry Chopper"
+ssh-keygen -t ed25519 -N "" -C "telemetry-chopper release" -f ./homebrew-tap-deploy-key
+gh repo deploy-key add ./homebrew-tap-deploy-key.pub -R PRIYAM232/homebrew-tap --allow-write --title "telemetry-chopper release"
+gh secret set HOMEBREW_TAP_DEPLOY_KEY -R PRIYAM232/telemetry-chopper < ./homebrew-tap-deploy-key
+rm ./homebrew-tap-deploy-key ./homebrew-tap-deploy-key.pub
+```
+
+To rotate the key, repeat the last four commands and delete the old key under the tap repository's **Settings → Deploy keys**.
+
+Users then install with `brew install --cask priyam232/tap/telemetry-chopper`, and each release updates the cask with a commit to the tap.

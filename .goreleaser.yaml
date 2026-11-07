@@ -4,7 +4,8 @@
 # GitHub Release with:
 #   - .deb and .rpm packages (systemd service, /etc/telemetry-chopper/)
 #   - tar.gz archives for Linux and macOS, zip for Windows
-#   - a Homebrew cask, when HOMEBREW_TAP_TOKEN is set
+#   - a Homebrew cask in PRIYAM232/homebrew-tap, when the
+#     HOMEBREW_TAP_DEPLOY_KEY secret is set
 #   - checksums.txt, signed keylessly with cosign, and an SBOM per archive
 #
 # The collector's main package doesn't exist in the repo: the OpenTelemetry
@@ -128,15 +129,25 @@ homebrew_casks:
     homepage: https://github.com/PRIYAM232/telemetry-chopper
     description: OpenTelemetry collector that filters telemetry at the edge
     license: Apache-2.0
+    # Pushed over SSH with a deploy key: write access to the tap repository
+    # and nothing else, unlike a personal access token. The private key is
+    # the HOMEBREW_TAP_DEPLOY_KEY Actions secret (setup steps in
+    # deploy/packaging/README.md).
     repository:
       owner: PRIYAM232
       name: homebrew-tap
-      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    # Publishing needs a token with push access to PRIYAM232/homebrew-tap;
-    # without one, releases still build everything else.
+      branch: main
+      git:
+        url: git@github.com:PRIYAM232/homebrew-tap.git
+        private_key: '{{ index .Env "HOMEBREW_TAP_DEPLOY_KEY" }}'
+    # Without the secret, releases still build and publish everything else.
     # A missing Actions secret arrives as an empty string, so test the
     # value, not whether the variable exists.
-    skip_upload: '{{ if index .Env "HOMEBREW_TAP_TOKEN" }}false{{ else }}true{{ end }}'
+    skip_upload: '{{ if index .Env "HOMEBREW_TAP_DEPLOY_KEY" }}false{{ else }}true{{ end }}'
+    commit_author:
+      name: telemetry-chopper-release
+      email: noreply@github.com
+    commit_msg_template: "telemetry-chopper {{ .Tag }}"
     caveats: |
       Start it with the bundled example rules:
         curl -fsSLO https://raw.githubusercontent.com/PRIYAM232/telemetry-chopper/main/deploy/packaging/config.yaml
