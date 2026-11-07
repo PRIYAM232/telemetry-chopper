@@ -154,6 +154,13 @@ homebrew_casks:
         curl -fsSL -o rules.yaml https://raw.githubusercontent.com/PRIYAM232/telemetry-chopper/main/data-plane/config/rules.example.yaml
         CHOPPER_RULES_FILE=./rules.yaml otelcol-chopper --config config.yaml
       Docs: https://github.com/PRIYAM232/telemetry-chopper/blob/main/docs/deploy/install-the-collector.md
+    # An explicit zap stanza: without one, GoReleaser 2.20 writes
+    # `zap :not_required`, which Homebrew 7 rejects as invalid and refuses to
+    # install. `brew uninstall --zap` also removes the starter config that
+    # the install docs create.
+    zap:
+      trash:
+        - "~/.config/telemetry-chopper"
     # The binary isn't notarized; drop the quarantine flag macOS sets on
     # downloads so it can run.
     hooks:

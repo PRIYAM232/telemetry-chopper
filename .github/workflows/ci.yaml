@@ -208,7 +208,10 @@ jobs:
         uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: "~> v2"
+          # Pinned: GoReleaser releases change the generated Homebrew cask (2.20
+          # started writing `zap :not_required`, which Homebrew 7 rejects).
+          # Bump deliberately, after checking `brew install` of a snapshot cask.
+          version: "v2.20.0"
           args: release --snapshot --clean --skip=sign,sbom,homebrew --parallelism 1 --config ${{ runner.temp }}/goreleaser-ci.yaml
       - if: steps.scope.outputs.build == 'true'
         name: Packaged config and rules pass validation

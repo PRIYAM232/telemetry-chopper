@@ -189,7 +189,10 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
-          version: "~> v2"
+          # Pinned: GoReleaser releases change the generated Homebrew cask (2.20
+          # started writing `zap :not_required`, which Homebrew 7 rejects).
+          # Bump deliberately, after checking `brew install` of a snapshot cask.
+          version: "v2.20.0"
           # One target at a time: with the Datadog receiver compiled in, four
           # parallel collector builds exhaust the runner's memory and the
           # job dies silently mid-build.
