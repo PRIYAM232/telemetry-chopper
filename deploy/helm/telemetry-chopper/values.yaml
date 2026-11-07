@@ -151,7 +151,9 @@ collector:
   # Where the traces/hot, logs/hot and metrics/hot pipelines send what the
   # rules keep: an OTLP gRPC endpoint, such as a Datadog Agent with OTLP
   # ingest (datadog-agent.datadog.svc:4317), Grafana Alloy or a vendor's
-  # OTLP intake. With no endpoint, the hot pipelines end in the debug
+  # OTLP intake. One gRPC endpoint for all three signals: Loki, Mimir and
+  # Prometheus take OTLP over HTTP only, so put Alloy or a fan-out collector
+  # in front of them. With no endpoint, the hot pipelines end in the debug
   # exporter, as before. Uses the persistent queue when that's enabled.
   hotBackend:
     otlp:

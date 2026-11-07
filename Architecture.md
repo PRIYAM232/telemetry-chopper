@@ -1,8 +1,3 @@
-My local `ARCHITECTURE.md` or system documentation file.
-Here is the complete, production-ready tech stack description for **Telemetry Chopper**. 
-
----
-
 # Telemetry Chopper Architecture & Tech Stack
 
 Telemetry Chopper utilizes a **"Split-Brain" Architecture** to maximize both real-time data-processing efficiency and developer iteration speed. The system is strictly partitioned into a compiled, ultra-low-latency **Data Plane** and a web-accessible, schema-driven **Control Plane**.
@@ -23,7 +18,7 @@ The Data Plane sits inline with your application's telemetry stream. It must par
 
 * **Core Packages:** * `go.opentelemetry.io/collector/component` (Component lifecycle management)
 * `go.opentelemetry.io/collector/processor` (Custom telemetry interception mechanics)
-* `sync.Mutex` (Safe in-memory state swaps when rules change dynamically)
+* `sync.RWMutex` (swaps in a new, pre-compiled ruleset when rules change; the consume hot paths only read the current one)
 
 
 
@@ -41,7 +36,7 @@ The Control Plane is the operational brain. It handles user authentication, expo
 * *Why:* Provides a strongly typed abstraction layer over the database, allowing for rapid schema updates, automated relational mapping, and deterministic state management for fleet configurations.
 
 
-* **Styling Layer:** **Tailwind CSS + Radix UI / Shadcn**
+* **Styling Layer:** **Tailwind CSS**
 * *Why:* Clean, low-weight component assembly to fast-track visual dashboards tracking ingestion cost trends, active dropping rates, and system latency.
 
 
@@ -67,10 +62,10 @@ The Control Plane is the operational brain. It handles user authentication, expo
 ┌────────────────────────────────────────────────────────┐
 │  DATA PLANE: Telemetry Chopper OTel Collector (Go)     │
 │  - Reads in-memory JSON rules                          │
-│  - Drops, redacts, or mutates data in-memory (<1ms)     │
+│  - Drops, redacts, or mutates data in memory           │
 └──────────────────────────▲─────────────────────────────┘
                            │
-                           │ (Periodic Polling via REST over HTTP/gRPC)
+                           │ (HTTP polling for rules, HTTP POST for stats)
                            │
 ┌──────────────────────────┴─────────────────────────────┐
 │  CONTROL PLANE: Management Platform (TypeScript)        │
@@ -92,7 +87,7 @@ The Control Plane is the operational brain. It handles user authentication, expo
 
 | Architectural Layer | Language | Core Tech Stack | Primary Performance Constraint |
 | --- | --- | --- | --- |
-| **Data Plane Proxy** | Go | `ocb` + OTel Core SDK | **Sub-millisecond Latency** (<1ms processing overhead, zero network hops) |
+| **Data Plane Proxy** | Go | `ocb` + OTel Core SDK | **Low per-record cost** (roughly 10–700 ns per record depending on the rules, measured with `make bench`; no network hops) |
 | **Control Plane API** | TypeScript | Node.js + Next.js App Router | **High I/O Concurrency** (Efficiently serving JSON payloads to polling clients) |
 | **Control Plane UI** | TypeScript | React + Tailwind CSS | **Time-to-Value Rendering** (Instant data visualization and rule toggles) |
 | **Persistence Engine** | SQL | PostgreSQL + Prisma | **Relational Integrity** (Predictable schemas for multi-tenant fleet policies) |

@@ -37,6 +37,10 @@ A SAMPLE rule's **Applies to** setting chooses which spans its keep-or-drop deci
 
 The decision is based on the trace ID, so every collector reaches the same decision for a trace without coordinating.
 
+The rate is applied in whole percent: collectors round it to the nearest 1%, so `0.025` keeps 3%. The dashboard accepts rates from `0.01` to `1`. In a [rules file](rules-file.md), a rate below `0.005` rounds to 0% and the rule drops every trace it applies to.
+
+Kept spans don't record the rate they were sampled at. Metrics your backend derives from spans, such as Tempo's span metrics and service graphs, count only the kept spans: at 5%, request rates read 20 times too low. Divide such queries by the rate, or build RED dashboards from metrics your services emit, which SAMPLE doesn't touch.
+
 With **Matching spans only**, spans the condition misses are always kept, even when the rest of their trace is sampled out. Their parents can then be missing, which breaks the trace in your backend. Spans from browsers, proxies and third-party components often lack attributes your services set, such as `service.namespace`. Use **Matching spans only** with a condition every span of the traces you sample has.
 
 The rule card shows **misses N% of spans · may break traces** when collectors see spans that a **Matching spans only** rule's condition misses. See [Monitor what each rule is doing](monitor-rule-activity.md#find-sample-rules-that-break-traces).

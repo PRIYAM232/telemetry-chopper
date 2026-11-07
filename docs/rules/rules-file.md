@@ -73,7 +73,7 @@ The file has one top-level key, `rules`, holding a list. Rules run in the order 
 | `action` | Yes | `drop`, `sample`, `redact`, `route`, `throttle` or `exclude_index`. See [Rule actions](README.md#rule-actions) for which actions each signal supports. |
 | `when` | Yes, except for whole-trace `sample` | The condition that selects records. See [Conditions](#conditions). |
 | `enabled` | No | `false` pauses the rule: it stays in the file but isn't enforced. Default `true`. |
-| `sample_rate` | For `sample` | The fraction of traces to keep, greater than 0 and at most 1. `0.1` keeps 10%. |
+| `sample_rate` | For `sample` | The fraction of traces to keep, greater than 0 and at most 1. `0.1` keeps 10%. It's rounded to the nearest whole percent, so a rate below `0.005` keeps nothing. |
 | `sample_scope` | No, `sample` only | `trace` (default) keeps or drops whole traces and takes no `when`. `span` samples only spans matching `when`; see [Sample whole traces](README.md#sample-whole-traces) for why that can break traces. |
 | `destination` | For `route` | The routing connector table entry to send matches to, such as `cold-storage`. Letters, digits and `. _ / -`. |
 | `throttle_rate` | For `throttle` | Records per second allowed through, from 1 to 1,000,000. |
