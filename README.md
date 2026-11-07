@@ -53,7 +53,7 @@ Telemetry Chopper uses a deliberately decoupled, split-brain design: a compiled,
 
 - **Control Plane** ([`control-plane/`](control-plane/)) — a Next.js application backed by PostgreSQL (Prisma). This is where you manage collector fleets, author policy rules, and watch live match/drop statistics. It serves versioned rulesets over a poll-and-sync API to any number of collectors.
 
-- **Data Plane** ([`data-plane/`](data-plane/)) — `otelcol-chopper`, a custom OpenTelemetry Collector distribution built with the official OCB toolchain. Its core is the purpose-built `chopper_filter` processor: it polls the Control Plane for rule updates, applies them across traces, logs, and metrics with zero-allocation regex matching and lock-free hot-path counters, and atomically swaps rulesets in memory. If the Control Plane is unreachable, the collector **fails open** on its last-known ruleset — your telemetry keeps flowing.
+- **Data Plane** ([`data-plane/`](data-plane/)) — `otelcol-chopper`, a custom OpenTelemetry Collector distribution built with the official OCB toolchain. Its core is the purpose-built `chopper_filter` processor: it polls the Control Plane for rule updates, applies them across traces, logs, and metrics with regexes compiled once per sync, no per-record allocations for records no rule matches, and lock-free hot-path counters, and atomically swaps rulesets in memory. If the Control Plane is unreachable, the collector **fails open** on its last-known ruleset — your telemetry keeps flowing.
 
 ```mermaid
 flowchart LR
@@ -90,8 +90,8 @@ Every rule targets a signal (traces, logs, or metrics), matches on attributes or
 | Action | What it does | Typical use |
 |---|---|---|
 | **DROP** | Discards matching telemetry outright at the edge. | Health-check spans, `DEBUG` logs from prod, k8s liveness noise. |
-| **SAMPLE** | Keeps a configurable fraction (`0`–`1`) of matching telemetry, probabilistically, so aggregate statistics stay representative. | Keep 5% of high-volume, low-value traces instead of 100%. |
-| **REDACT** | Masks only the matched substrings via zero-allocation regex — the rest of the payload passes through untouched. | SSNs, credit-card numbers, bearer tokens, emails — scrubbed before data leaves your network. |
+| **SAMPLE** | Keeps a fraction of traces, in whole-percent steps from 1% to 100%, chosen by trace ID so every collector keeps the same traces. Traces only. | Keep 5% of high-volume, low-value traces instead of 100%. |
+| **REDACT** | Masks the rule's condition field: with a regex, only the matched substrings; otherwise the whole value. The rest of the payload passes through untouched. | SSNs, credit-card numbers, bearer tokens, emails — scrubbed before data leaves your network. |
 | **ROUTE** | Never drops; stamps the matching telemetry's resource with a routing destination that forks it into a different pipeline (e.g. `traces/in` → `traces/hot` or `traces/cold`). | Send audit logs to cheap cold storage while errors go to your hot APM backend ([how](#routing-to-hot-and-cold-backends)). |
 | **THROTTLE** | Token-bucket rate limiting (events/sec), isolated per tenant by an attribute key of your choice — one bucket per attribute *value*. | Cap each `tenant.id` at 100 logs/sec so one runaway customer can't flood the pipeline for everyone. |
 | **EXCLUDE_INDEX** | Never drops; stamps matching spans or log records with `chopper.index=false` so your vendor's index exclusion filter keeps them out of the paid search index while they're still ingested. | Keep INFO logs flowing to live tail and archives without paying to index them ([details](docs/rules/exclude-from-index.md)). |

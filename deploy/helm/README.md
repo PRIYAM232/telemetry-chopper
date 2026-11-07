@@ -264,6 +264,12 @@ missing its bucket, storage URL (unless you use a connection string) or volume.
   queues on disk (`collector.persistentQueue`, an `emptyDir` by default,
   which survives container restarts but not pod deletion). See
   [Run gateways in production](../../docs/deploy/run-gateways-in-production.md).
+- **Hot backend**: `collector.hotBackend.otlp.endpoint` is one OTLP gRPC
+  endpoint for all three signals, with one set of `headers`. Tempo and Grafana
+  Alloy accept OTLP gRPC, but Loki, Mimir and Prometheus take OTLP over HTTP
+  only, and a multi-tenant Loki or Mimir needs its own `X-Scope-OrgID`. To ship
+  to a Grafana LGTM stack, point the endpoint at Grafana Alloy or an
+  OpenTelemetry Collector that fans out per signal.
 - **Managed database**: `--set postgres.enabled=false --set database.externalUrl=postgresql://…` —
   drops the StatefulSet entirely; secret, migration job, and control plane
   all follow the external URL.
