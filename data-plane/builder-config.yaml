@@ -114,6 +114,13 @@ replaces:
   # line requires >= v0.60.0 itself; `go version -m dist/otelcol-chopper`
   # shows what shipped.
   - golang.org/x/net => golang.org/x/net v0.60.0
+  # Security floor for klauspost/compress. The v0.156.0 modules resolve
+  # v1.19.1, whose fse and huff0 decoders panic on crafted two-block frames:
+  # GO-2026-6865 (GHSA-fpmh-frq8-7rj8), fixed in v1.20.2, reachable from the
+  # receivers' compressed-payload decoding per govulncheck in source mode.
+  # Remove once the collector release line requires >= v1.20.2 itself;
+  # `go version -m dist/otelcol-chopper` shows what shipped.
+  - github.com/klauspost/compress => github.com/klauspost/compress v1.20.2
   # Security floor for the collector's own OTLP log exporter. The v0.156.0
   # modules resolve go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc
   # v0.20.0, which ignores the OTEL_EXPORTER_OTLP_{,LOGS_}CERTIFICATE /
